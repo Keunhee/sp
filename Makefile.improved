@@ -1,0 +1,50 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -g -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+LDFLAGS = -ljansson -lpthread
+
+# 기본 타겟
+all: server client test_octaflip test_improved
+
+# 서버 빌드
+server: server.o octaflip.o json_handler.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# 클라이언트 빌드
+client: client.o octaflip.o json_handler.o led_matrix.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# 테스트 프로그램 빌드
+test_octaflip: test_octaflip.o octaflip.o led_matrix.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# 개선된 테스트 프로그램 빌드
+test_improved: test_improved.o octaflip.o led_matrix.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# 객체 파일 빌드 규칙
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# 정적 분석 도구 실행
+analyze:
+	cppcheck --enable=all --suppress=missingIncludeSystem *.c *.h
+	scan-build make -j
+
+# 메모리 누수 테스트
+memcheck: test_improved
+	valgrind --leak-check=full --show-leak-kinds=all ./test_improved
+
+# 클린 타겟
+clean:
+	rm -f *.o server client test_octaflip test_improved
+
+# 종속성
+server.o: server.c octaflip.h json_handler.h
+client.o: client.c octaflip.h json_handler.h led_matrix.h
+test_octaflip.o: test_octaflip.c octaflip.h led_matrix.h
+test_improved.o: test_improved.c octaflip.h led_matrix.h
+octaflip.o: octaflip.c octaflip.h
+led_matrix.o: led_matrix.c led_matrix.h octaflip.h
+json_handler.o: json_handler.c json_handler.h octaflip.h
+
+.PHONY: all clean analyze memcheck

@@ -21,6 +21,8 @@
 pthread_mutex_t player_lock;
 pthread_mutex_t move_lock;
 pthread_cond_t move_cv;
+pthread_cond_t game_start_cv;
+
 int player_count = 0;
 int turn = 1;
 char* userlist[MAX_CLIENTS] = {NULL};
@@ -38,7 +40,7 @@ void io_turn(const int clientfd, const GameBoard* board);
 void io_over(const int clientfd, int* score);
 void game_start(GameBoard* board);
 void game_turn(GameBoard* board);
-void game_over();
+void game_over(GameBoard* board);
 
 void send_free(const int clientfd, JsonValue* message){
     if (message == NULL) return;  // message가 NULL인 경우 처리하지 않음
@@ -56,47 +58,83 @@ void send_free(const int clientfd, JsonValue* message){
 }
 
 void* io_thread(void* arg) {
-    int sockfd = *((int*)arg);
+    int clientfd = *((int*)arg);
+    free(arg);
+
+    char buf[BUFFER_SIZE] = {0};
+    size_t buf_pos = 0;
+    ssize_t bytes_received;
+
     while (1) {
-        int clientfd = accept(sockfd, NULL, NULL);
-        if (clientfd == -1) continue; // accept error
-
-        char buf[1024] = {0}; size_t len = 0; char *p;
-        len += recv(clientfd, buf+len, sizeof(buf) - len - 1, 0);
-        buf[len] = '\0';
-        while ((p = strchr(buf, '\n'))){
-            *p = '\0';
+        if (buf_pos >= BUFFER_SIZE - 1) {
+            fprintf(stderr, "Buffer overflow detected\n");
+            break;
         }
 
-        JsonValue* json_parsed = json_parse(buf);
-        if (json_parsed == NULL) {
-            fprintf(stderr, "JSON parse error\n");
-            close(clientfd);
-            continue;
-        }
-
-        const char* type = json_string_value(json_object_get(json_parsed, "type"));
-        const char* name = json_string_value(json_object_get(json_parsed, "username"));
-
-        if (!strcmp(type, "register")) {
-            io_register(clientfd, name);
-        } else if (!strcmp(type, "move")) {
-            pthread_mutex_lock(&move_lock);
-            latest_move.sourceRow = json_boolean_value(json_object_get(json_parsed, "sx"));
-            latest_move.sourceCol = json_boolean_value(json_object_get(json_parsed, "sy"));
-            latest_move.targetRow = json_boolean_value(json_object_get(json_parsed, "tx"));
-            latest_move.targetCol = json_boolean_value(json_object_get(json_parsed, "ty"));
-            if (latest_name != NULL) {
-                free(latest_name);
+        bytes_received = recv(clientfd, buf + buf_pos, BUFFER_SIZE - buf_pos - 1, 0);
+        
+        if (bytes_received <= 0) {
+            if (bytes_received == 0) {
+                printf("Client disconnected\n");
+            } else {
+                perror("recv error");
             }
-            latest_name = strdup(name);
-            move_ready = 1;
-
-            pthread_cond_signal(&move_cv);
-            pthread_mutex_unlock(&move_lock);
+            break;
         }
-        json_free(json_parsed);
+
+        buf_pos += bytes_received;
+        buf[buf_pos] = '\0';
+
+        char* message_start = buf;
+        char* message_end;
+        
+        while ((message_end = strchr(message_start, '\n')) != NULL) {
+            size_t message_len = message_end - message_start;
+            *message_end = '\0';
+            
+            JsonValue* json_parsed = json_parse(message_start);
+            if (json_parsed == NULL) {
+                fprintf(stderr, "JSON parse error\n");
+                message_start = message_end + 1;
+                continue;
+            }
+
+            const char* type = json_string_value(json_object_get(json_parsed, "type"));
+            const char* name = json_string_value(json_object_get(json_parsed, "username"));
+
+            if (!strcmp(type, "register")) {
+                io_register(clientfd, name);
+            } else if (!strcmp(type, "move")) {
+                pthread_mutex_lock(&move_lock);
+                latest_move.sourceRow = json_boolean_value(json_object_get(json_parsed, "sx"));
+                latest_move.sourceCol = json_boolean_value(json_object_get(json_parsed, "sy"));
+                latest_move.targetRow = json_boolean_value(json_object_get(json_parsed, "tx"));
+                latest_move.targetCol = json_boolean_value(json_object_get(json_parsed, "ty"));
+                if (latest_name != NULL) {
+                    free(latest_name);
+                }
+                latest_name = strdup(name);
+                move_ready = 1;
+
+                pthread_cond_signal(&move_cv);
+                pthread_mutex_unlock(&move_lock);
+            }
+            
+            json_free(json_parsed);
+            
+            message_start = message_end + 1;
+        }
+        if (message_start > buf) {
+            size_t remaining = buf_pos - (message_start - buf);
+            if (remaining > 0) {
+                memmove(buf, message_start, remaining);
+                buf_pos = remaining;
+            } else {
+                buf_pos = 0;
+            }
+        }
     }
+    close(clientfd);
     return NULL;
 }
 
@@ -131,6 +169,9 @@ void io_register(const int clientfd, const char* name){
             player_count++;
             message = createRegisterAckMessage();
             send_free(clientfd, message);
+            if (player_count == 2){
+                pthread_cond_signal(&game_start_cv);
+            }
         }
     } else {
         message = createRegisterNackMessage("game is already running.");
@@ -184,14 +225,12 @@ void io_over(const int clientfd, int* score){
 }
 
 void* game_thread(void* arg) {
-    while (1) {
-        pthread_mutex_lock(&player_lock);
-        if (player_count == 2) {
-            pthread_mutex_unlock(&player_lock);
-            break;
-        }
-        pthread_mutex_unlock(&player_lock);
+    pthread_mutex_lock(&player_lock);
+    while (player_count < 2) {
+        pthread_cond_wait(&game_start_cv, &player_lock);
     }
+    pthread_mutex_unlock(&player_lock);
+
     GameBoard* board = (GameBoard*)malloc(sizeof(GameBoard));
     game_start(board);
     
@@ -215,7 +254,7 @@ void* game_thread(void* arg) {
         }
         current = 1 - current;
     }
-    game_over();
+    game_over(board);
     free(board);
     
     return NULL;
@@ -224,14 +263,41 @@ void* game_thread(void* arg) {
 void game_start(GameBoard* board){
     initializeBoard(board);
     
+    // 첫 번째 플레이어를 RED_PLAYER로, 두 번째 플레이어를 BLUE_PLAYER로 설정
+    pthread_mutex_lock(&player_lock);
+    board->currentPlayer = RED_PLAYER;  // 첫 번째 플레이어가 빨간색으로 시작
+    
+    // 게임 시작 메시지 전송
     io_start(fdlist[0]);
     io_start(fdlist[1]);
+    pthread_mutex_unlock(&player_lock);
 }
 
 void game_turn(GameBoard* board){
+    if (board == NULL) {
+        fprintf(stderr, "Invalid game board\n");
+        return;
+    }
+
     pthread_mutex_lock(&player_lock);
     int current = (turn - 1) % 2;
+    char* current_player_name = NULL;
+    
+    if (userlist[current] != NULL) {
+        current_player_name = strdup(userlist[current]);
+    }
     pthread_mutex_unlock(&player_lock);
+
+    if (current_player_name == NULL) {
+        fprintf(stderr, "Failed to get current player name\n");
+        return;
+    }
+
+    if (fdlist[current] < 0) {
+        fprintf(stderr, "Invalid socket for player %s\n", current_player_name);
+        free(current_player_name);
+        return;
+    }
 
     io_turn(fdlist[current], board);
     
@@ -246,41 +312,60 @@ void game_turn(GameBoard* board){
             break;
         }
     }
-    
+
     if (move_ready) { 
         move_ready = 0; 
-        if (!strcmp(latest_name, userlist[current])){
+        if (!strcmp(latest_name, current_player_name)){
+            // 현재 플레이어의 색상 설정
+            latest_move.player = (current == 0) ? RED_PLAYER : BLUE_PLAYER;
+            
             if (isValidMove(board, &latest_move)) {
                 applyMove(board, &latest_move);
-                io_move(fdlist[current], 0, board, userlist[current]); // valid move
+                io_move(fdlist[current], 0, board, current_player_name); // valid move
             }
             else {
-                io_move(fdlist[current], 1, board, userlist[current]); // invalid move
+                io_move(fdlist[current], 1, board, current_player_name); // invalid move
                 pthread_mutex_lock(&player_lock);
                 turn--;
                 pthread_mutex_unlock(&player_lock);
-
             }
         }
     } else { 
-        io_move(fdlist[current], 2, board, userlist[current]); // pass
+        io_move(fdlist[current], 2, board, current_player_name); // pass
     }
 
     pthread_mutex_unlock(&move_lock);
     pthread_mutex_lock(&player_lock);
     turn++;
     pthread_mutex_unlock(&player_lock);
+
+    free(current_player_name);
 }
 
-void game_over() {
+void game_over(GameBoard* board) {
+    pthread_mutex_lock(&player_lock);
+    pthread_mutex_lock(&move_lock);
+
+    // 최종 점수 계산
+    countPieces(board);
+    score[0] = board->redCount;
+    score[1] = board->blueCount;
+
     io_over(fdlist[0], score);
     io_over(fdlist[1], score);
-    close(fdlist[0]);
-    close(fdlist[1]);
-    fdlist[0] = -1;
-    fdlist[1] = -1;
+    
+    if (fdlist[0] >= 0) {
+        close(fdlist[0]);
+        fdlist[0] = -1;
+    }
+    if (fdlist[1] >= 0) {
+        close(fdlist[1]);
+        fdlist[1] = -1;
+    }
+
     score[0] = 0;
     score[1] = 0;
+
     if (userlist[0] != NULL) {
         free(userlist[0]);
         userlist[0] = NULL;
@@ -289,21 +374,26 @@ void game_over() {
         free(userlist[1]);
         userlist[1] = NULL;
     }
-    player_count = 0;
+
     if (latest_name != NULL) {
         free(latest_name);
         latest_name = NULL;
     }
+    move_ready = 0;
+    player_count = 0;
+
+    pthread_mutex_unlock(&move_lock);
+    pthread_mutex_unlock(&player_lock);
 }
 
 int main(void) {
     struct addrinfo hints, *res;
     int sockfd, status;
 
-    // 뮤텍스와 조건 변수 초기화
     pthread_mutex_init(&player_lock, NULL);
     pthread_mutex_init(&move_lock, NULL);
     pthread_cond_init(&move_cv, NULL);
+    pthread_cond_init(&game_start_cv, NULL);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -342,13 +432,26 @@ int main(void) {
         exit(1);
     }
 
-    pthread_t io_tid;
-    pthread_create(&io_tid, NULL, io_thread, &sockfd);
-
     pthread_t game_tid;
     pthread_create(&game_tid, NULL, game_thread, NULL);
 
-    pthread_join(io_tid, NULL);
+    while(1){
+        int clientfd = accept(sockfd, NULL, NULL);
+        if (clientfd == -1) continue; // accept error
+
+        int *p_clientfd = malloc(sizeof(int));
+        if (p_clientfd == NULL){
+            perror("malloc");
+            close(clientfd);
+            continue;
+        }
+        *p_clientfd = clientfd;
+
+        pthread_t io_tid;
+        pthread_create(&io_tid, NULL, io_thread, p_clientfd);
+        pthread_detach(io_tid);
+    }
+
     pthread_join(game_tid, NULL);
     
     pthread_mutex_destroy(&player_lock);

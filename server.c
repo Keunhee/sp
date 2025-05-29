@@ -104,6 +104,12 @@ void* io_thread(void* arg) {
 
             if (!strcmp(type, "register")) {
                 io_register(clientfd, name);
+                // register 실패 시 스레드 종료
+                if (json_parsed != NULL) {
+                    json_free(json_parsed);
+                }
+                close(clientfd);
+                return NULL;
             } else if (!strcmp(type, "move")) {
                 pthread_mutex_lock(&move_lock);
                 latest_move.sourceRow = json_boolean_value(json_object_get(json_parsed, "sx"));
@@ -121,9 +127,9 @@ void* io_thread(void* arg) {
             }
             
             json_free(json_parsed);
-            
             message_start = message_end + 1;
         }
+
         if (message_start > buf) {
             size_t remaining = buf_pos - (message_start - buf);
             if (remaining > 0) {
@@ -134,6 +140,7 @@ void* io_thread(void* arg) {
             }
         }
     }
+
     close(clientfd);
     return NULL;
 }
@@ -156,14 +163,16 @@ void io_register(const int clientfd, const char* name){
     if(already_registered) {
         message = createRegisterNackMessage("You already registered"); 
         send_free(clientfd, message);
-        close(clientfd); 
+        pthread_mutex_unlock(&player_lock);
+        return;  // 소켓은 io_thread에서 닫도록 함
     }
     else if (player_count < 2) {
         userlist[player_count] = strdup(name);
         if (userlist[player_count] == NULL) {
             message = createRegisterNackMessage("Memory allocation failed");
             send_free(clientfd, message);
-            close(clientfd);
+            pthread_mutex_unlock(&player_lock);
+            return;  // 소켓은 io_thread에서 닫도록 함
         } else {
             fdlist[player_count] = clientfd;
             player_count++;
@@ -176,7 +185,8 @@ void io_register(const int clientfd, const char* name){
     } else {
         message = createRegisterNackMessage("game is already running.");
         send_free(clientfd, message);
-        close(clientfd);
+        pthread_mutex_unlock(&player_lock);
+        return;  // 소켓은 io_thread에서 닫도록 함
     }
     pthread_mutex_unlock(&player_lock);
 }

@@ -304,7 +304,6 @@ void game_turn(GameBoard* board){
             latest_move.player = (current == 0) ? RED_PLAYER : BLUE_PLAYER;
             if (isValidMove(board, &latest_move)) {
                 applyMove(board, &latest_move);
-                printf("applied movement\n");
                 io_move(fdlist[current], 0, board, current_player_name); // 1,2 valid move/pass
             }
             else {

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include "octaflip.h"
 #include "json.h"
@@ -54,9 +55,6 @@ void send_free(const int clientfd, JsonValue* message){
         return;
     }
 
-    printf("%s", final_message);
-    printf("\n");
-
     send(clientfd, final_message, strlen(final_message), 0);
     send(clientfd, "\n", 1, 0);
     json_free(message);
@@ -95,7 +93,6 @@ void* io_thread(void* arg) {
         char* message_end;
         
         while ((message_end = strchr(message_start, '\n')) != NULL) {
-            size_t message_len = message_end - message_start;
             *message_end = '\0';
             
             JsonValue* json_parsed = json_parse(message_start);
@@ -112,10 +109,10 @@ void* io_thread(void* arg) {
                 io_register(clientfd, name);
             } else if (!strcmp(type, "move")) {
                 pthread_mutex_lock(&move_lock);
-                latest_move.sourceRow = json_boolean_value(json_object_get(json_parsed, "sx"));
-                latest_move.sourceCol = json_boolean_value(json_object_get(json_parsed, "sy"));
-                latest_move.targetRow = json_boolean_value(json_object_get(json_parsed, "tx"));
-                latest_move.targetCol = json_boolean_value(json_object_get(json_parsed, "ty"));
+                latest_move.sourceRow = (int)json_number_value(json_object_get(json_parsed, "sx"));
+                latest_move.sourceCol = (int)json_number_value(json_object_get(json_parsed, "sy"));
+                latest_move.targetRow = (int)json_number_value(json_object_get(json_parsed, "tx"));
+                latest_move.targetCol = (int)json_number_value(json_object_get(json_parsed, "ty"));
                 if (latest_name != NULL) {
                     free(latest_name);
                 }
@@ -189,8 +186,6 @@ void io_register(const int clientfd, const char* name){
 }
 
 void io_move(const int clientfd, const int validity, GameBoard* board, char* next_player){
-    pthread_mutex_lock(&move_lock);
-
     JsonValue* message = NULL;
     if(validity == 0){
         message = createMoveOkMessage(board, next_player);
@@ -201,19 +196,11 @@ void io_move(const int clientfd, const int validity, GameBoard* board, char* nex
     else if(validity == 2){
         message = createPassMessage(next_player);
     }
-
-    if (message != NULL) {
-        send_free(clientfd, message);
-    }
-
-    pthread_cond_signal(&move_cv);
-    pthread_mutex_unlock(&move_lock);
+    send_free(clientfd, message);
 }
 
 void io_start(const int clientfd){
-    printf("%d\n", 1);
     pthread_mutex_lock(&player_lock);
-    printf("%d\n", 2);
     JsonValue* message = createGameStartMessage((const char**)userlist, userlist[0]);
     send_free(clientfd, message);
     
@@ -281,31 +268,18 @@ void game_start(GameBoard* board){
     io_start(fdlist[1]);
 }
 
-void game_turn(GameBoard* board){
-    if (board == NULL) {
-        fprintf(stderr, "Invalid game board\n");
-        return;
-    }
-
+void game_turn(GameBoard* board){ 
+    // this function checks movement
+    // 1. valid move
+    // 2. valid pass
+    // 3. invalid move (wrong location/username)
+    // 4. invalid pass
+    // 5. timeout
+    // 6. client connection lost ---- #### not implemented yet
     pthread_mutex_lock(&player_lock);
     int current = (turn - 1) % 2;
-    char* current_player_name = NULL;
-    
-    if (userlist[current] != NULL) {
-        current_player_name = strdup(userlist[current]);
-    }
+    char* current_player_name = strdup(userlist[current]);
     pthread_mutex_unlock(&player_lock);
-
-    if (current_player_name == NULL) {
-        fprintf(stderr, "Failed to get current player name\n");
-        return;
-    }
-
-    if (fdlist[current] < 0) {
-        fprintf(stderr, "Invalid socket for player %s\n", current_player_name);
-        free(current_player_name);
-        return;
-    }
 
     io_turn(fdlist[current], board);
     
@@ -315,31 +289,33 @@ void game_turn(GameBoard* board){
     ts.tv_sec += (int)TIMEOUT_SEC;
     
     while(move_ready == 0){
-        int rc = pthread_cond_timedwait(&move_cv, &move_lock, &ts);
-        if (rc != 0){
+        int rc = pthread_cond_timedwait(&move_cv, &move_lock, &ts); // move_cv에서 signal 올때까지 
+        if (rc == ETIMEDOUT){
+            break;
+        } else if (rc != 0) {
+            fprintf(stderr, "pthread_cond_timedwait error: %d\n", rc);
             break;
         }
     }
 
     if (move_ready) { 
         move_ready = 0; 
-        if (!strcmp(latest_name, current_player_name)){
-            // 현재 플레이어의 색상 설정
+        if (!strcmp(latest_name, current_player_name)){ // 3,4 invalid move/pass (wrong player)
             latest_move.player = (current == 0) ? RED_PLAYER : BLUE_PLAYER;
-            
             if (isValidMove(board, &latest_move)) {
                 applyMove(board, &latest_move);
-                io_move(fdlist[current], 0, board, current_player_name); // valid move
+                printf("applied movement\n");
+                io_move(fdlist[current], 0, board, current_player_name); // 1,2 valid move/pass
             }
             else {
-                io_move(fdlist[current], 1, board, current_player_name); // invalid move
+                io_move(fdlist[current], 1, board, current_player_name); // 3,4 invalid move/pass (wrong location)
                 pthread_mutex_lock(&player_lock);
                 turn--;
                 pthread_mutex_unlock(&player_lock);
             }
         }
     } else { 
-        io_move(fdlist[current], 2, board, current_player_name); // pass
+        io_move(fdlist[current], 2, board, current_player_name); // 5 timeout
     }
 
     pthread_mutex_unlock(&move_lock);

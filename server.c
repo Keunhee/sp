@@ -276,11 +276,15 @@ void* game_thread(void* arg) {
 }
 
 void game_start(GameBoard* board){
+    printf("game_start called\n");
     initializeBoard(board);
     
     // 첫 번째 플레이어를 RED_PLAYER로, 두 번째 플레이어를 BLUE_PLAYER로 설정
     pthread_mutex_lock(&player_lock);
     board->currentPlayer = RED_PLAYER;  // 첫 번째 플레이어가 빨간색으로 시작
+    
+    printf("About to send game start messages\n");
+    printf("fdlist[0]: %d, fdlist[1]: %d\n", fdlist[0], fdlist[1]);
     
     // 게임 시작 메시지 전송
     io_start(fdlist[0]);

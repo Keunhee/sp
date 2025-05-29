@@ -43,13 +43,19 @@ void game_turn(GameBoard* board);
 void game_over(GameBoard* board);
 
 void send_free(const int clientfd, JsonValue* message){
-    if (message == NULL) return;  // message가 NULL인 경우 처리하지 않음
+    if (message == NULL) {
+        json_free(message);
+        return;  
+    }
 
     char* final_message = json_stringify(message);
-    if (final_message == NULL) {  // JSON 변환 실패 체크
+    if (final_message == NULL) {  
         json_free(message);
         return;
     }
+
+    printf("%s", final_message);
+    printf("\n");
 
     send(clientfd, final_message, strlen(final_message), 0);
     send(clientfd, "\n", 1, 0);
@@ -104,12 +110,6 @@ void* io_thread(void* arg) {
 
             if (!strcmp(type, "register")) {
                 io_register(clientfd, name);
-                // register 실패 시 스레드 종료
-                if (json_parsed != NULL) {
-                    json_free(json_parsed);
-                }
-                close(clientfd);
-                return NULL;
             } else if (!strcmp(type, "move")) {
                 pthread_mutex_lock(&move_lock);
                 latest_move.sourceRow = json_boolean_value(json_object_get(json_parsed, "sx"));
@@ -140,7 +140,6 @@ void* io_thread(void* arg) {
             }
         }
     }
-
     close(clientfd);
     return NULL;
 }
@@ -149,7 +148,6 @@ void io_register(const int clientfd, const char* name){
     pthread_mutex_lock(&player_lock);
     JsonValue* message;
 
-    // check whether if the name is already registered
     int already_registered = 0;
     for(int i = 0; i < player_count; i++) {
         if(userlist[i] != NULL) {
@@ -163,7 +161,7 @@ void io_register(const int clientfd, const char* name){
         message = createRegisterNackMessage("You already registered"); 
         send_free(clientfd, message);
         pthread_mutex_unlock(&player_lock);
-        return;  // 소켓은 io_thread에서 닫도록 함
+        return;
     }
     else if (player_count < 2) {
         userlist[player_count] = strdup(name);
@@ -171,7 +169,7 @@ void io_register(const int clientfd, const char* name){
             message = createRegisterNackMessage("Memory allocation failed");
             send_free(clientfd, message);
             pthread_mutex_unlock(&player_lock);
-            return;  // 소켓은 io_thread에서 닫도록 함
+            return;  
         } else {
             fdlist[player_count] = clientfd;
             player_count++;
@@ -180,14 +178,14 @@ void io_register(const int clientfd, const char* name){
             if (player_count == 2){
                 pthread_cond_signal(&game_start_cv);
             }
+            pthread_mutex_unlock(&player_lock);
         }
     } else {
         message = createRegisterNackMessage("game is already running.");
         send_free(clientfd, message);
         pthread_mutex_unlock(&player_lock);
-        return;  // 소켓은 io_thread에서 닫도록 함
+        return;  
     }
-    pthread_mutex_unlock(&player_lock);
 }
 
 void io_move(const int clientfd, const int validity, GameBoard* board, char* next_player){
@@ -213,14 +211,11 @@ void io_move(const int clientfd, const int validity, GameBoard* board, char* nex
 }
 
 void io_start(const int clientfd){
+    printf("%d\n", 1);
     pthread_mutex_lock(&player_lock);
-    printf("Creating game start message for fd %d\n", clientfd);
-    printf("userlist[0]: %s, userlist[1]: %s\n", userlist[0], userlist[1]);
-    
+    printf("%d\n", 2);
     JsonValue* message = createGameStartMessage((const char**)userlist, userlist[0]);
-    printf("Sending game start message to fd %d\n", clientfd);
     send_free(clientfd, message);
-    printf("Game start message sent to fd %d\n", clientfd);
     
     pthread_mutex_unlock(&player_lock);
 }
@@ -276,20 +271,14 @@ void* game_thread(void* arg) {
 }
 
 void game_start(GameBoard* board){
-    printf("game_start called\n");
     initializeBoard(board);
     
-    // 첫 번째 플레이어를 RED_PLAYER로, 두 번째 플레이어를 BLUE_PLAYER로 설정
     pthread_mutex_lock(&player_lock);
-    board->currentPlayer = RED_PLAYER;  // 첫 번째 플레이어가 빨간색으로 시작
+    board->currentPlayer = RED_PLAYER; 
+    pthread_mutex_unlock(&player_lock);
     
-    printf("About to send game start messages\n");
-    printf("fdlist[0]: %d, fdlist[1]: %d\n", fdlist[0], fdlist[1]);
-    
-    // 게임 시작 메시지 전송
     io_start(fdlist[0]);
     io_start(fdlist[1]);
-    pthread_mutex_unlock(&player_lock);
 }
 
 void game_turn(GameBoard* board){

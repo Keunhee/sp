@@ -149,6 +149,8 @@ void io_register(const int clientfd, const char* name){
     pthread_mutex_lock(&player_lock);
     JsonValue* message;
 
+    printf("Register attempt by %s, current player_count: %d\n", name, player_count);
+
     // check whether if the name is already registered
     int already_registered = 0;
     for(int i = 0; i < player_count; i++) {
@@ -161,6 +163,7 @@ void io_register(const int clientfd, const char* name){
         }
     }
     if(already_registered) {
+        printf("Name %s already registered\n", name);
         message = createRegisterNackMessage("You already registered"); 
         send_free(clientfd, message);
         pthread_mutex_unlock(&player_lock);
@@ -169,6 +172,7 @@ void io_register(const int clientfd, const char* name){
     else if (player_count < 2) {
         userlist[player_count] = strdup(name);
         if (userlist[player_count] == NULL) {
+            printf("Memory allocation failed for %s\n", name);
             message = createRegisterNackMessage("Memory allocation failed");
             send_free(clientfd, message);
             pthread_mutex_unlock(&player_lock);
@@ -176,13 +180,16 @@ void io_register(const int clientfd, const char* name){
         } else {
             fdlist[player_count] = clientfd;
             player_count++;
+            printf("Player %s registered successfully, new player_count: %d\n", name, player_count);
             message = createRegisterAckMessage();
             send_free(clientfd, message);
             if (player_count == 2){
+                printf("Two players registered, signaling game start\n");
                 pthread_cond_signal(&game_start_cv);
             }
         }
     } else {
+        printf("Game already running, rejecting %s\n", name);
         message = createRegisterNackMessage("game is already running.");
         send_free(clientfd, message);
         pthread_mutex_unlock(&player_lock);
@@ -235,12 +242,16 @@ void io_over(const int clientfd, int* score){
 }
 
 void* game_thread(void* arg) {
+    printf("Game thread started\n");
     pthread_mutex_lock(&player_lock);
     while (player_count < 2) {
+        printf("Game thread waiting for two players, current count: %d\n", player_count);
         pthread_cond_wait(&game_start_cv, &player_lock);
+        printf("Game thread woke up, player_count: %d\n", player_count);
     }
     pthread_mutex_unlock(&player_lock);
 
+    printf("Starting game with two players\n");
     GameBoard* board = (GameBoard*)malloc(sizeof(GameBoard));
     game_start(board);
     

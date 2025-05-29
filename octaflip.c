@@ -147,7 +147,12 @@ int isValidMove(const GameBoard *board, Move *move) {
         // 유효한 이동이 있는지 확인 - 있으면 패스 불가
         return !hasValidMove(board, current);
     }
-    
+
+    r1--;
+    c1--;
+    r2--;
+    c2--;
+
     // 범위 검사
     if (r1 < 0 || r1 >= BOARD_SIZE || c1 < 0 || c1 >= BOARD_SIZE ||
         r2 < 0 || r2 >= BOARD_SIZE || c2 < 0 || c2 >= BOARD_SIZE)
@@ -203,6 +208,10 @@ void applyMove(GameBoard *board, Move *move) {
     int c1 = move->sourceCol;
     int r2 = move->targetRow;
     int c2 = move->targetCol;
+    r1--;
+    c1--;
+    r2--;
+    c2--;
     char current = move->player;
     char opponent = (current == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
     

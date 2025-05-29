@@ -8,26 +8,19 @@ https://jost-do-it.tistory.com/entry/Docker-%EC%BB%A8%ED%85%8C%EC%9D%B4%EB%84%88
 
 # 정상 동작 검증 시나리오
 
-*Server commands
+ * Server commands
 
 ./server
 
-*client 1 commands
+ * Client1 commands
 
-nc 0.0.0.0 8888
-{"type":"register","username":"Alice"},
-{"type":"move","username":"Alice","sx":1,"sy":1,"tx":3,"ty":3},
-{"type":"move","username":"Alice","sx":3,"sy":3,"tx":4,"ty":4},
-{"type":"move","username":"Alice","sx":4,"sy":4,"tx":5,"ty":5},
-{"type":"move","username":"Alice","sx":5,"sy":5,"tx":6,"ty":6},
-{"type":"move","username":"Alice","sx":6,"sy":6,"tx":7,"ty":7}
+chmod 755 1.sh
+./1.sh
 
-*client 2 commands
+ * Client2 commands
 
-nc 0.0.0.0 8888
-{"type":"register","username":"Bob"},
-{"type":"move","username":"Bob","sx":8,"sy":1,"tx":7,"ty":2},
-{"type":"move","username":"Bob","sx":7,"sy":2,"tx":6,"ty":3},
-{"type":"move","username":"Bob","sx":6,"sy":3,"tx":5,"ty":4},
-{"type":"move","username":"Bob","sx":5,"sy":4,"tx":4,"ty":3},
-{"type":"move","username":"Bob","sx":4,"sy":3,"tx":3,"ty":2}
+chmod 755 2.sh
+./2.sh
+
+client1의 명령어를 먼저 시작하고 
+2초 정도 후에 client2에서도 명령어를 바로 입력하는 것이 권장됩니다.

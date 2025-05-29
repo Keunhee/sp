@@ -1,0 +1,6 @@
+{"type":"register","username":"Alice"}
+{"type":"move","username":"Alice","sx":1,"sy":1,"tx":1,"ty":3}
+{"type":"move","username":"Alice","sx":1,"sy":3,"tx":2,"ty":4}
+{"type":"move","username":"Alice","sx":8,"sy":8,"tx":8,"ty":6}
+{"type":"move","username":"Alice","sx":8,"sy":6,"tx":7,"ty":5}
+

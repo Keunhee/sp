@@ -17,7 +17,7 @@
 #define SERVER_IP "0.0.0.0"  
 #define MAX_CLIENTS 2
 #define BUFFER_SIZE 1024
-#define TIMEOUT_SEC 3.0
+#define TIMEOUT_SEC 5.0
 
 pthread_mutex_t player_lock;
 pthread_mutex_t move_lock;
@@ -215,10 +215,8 @@ void io_turn(const int clientfd, const GameBoard* board){
 }
 
 void io_over(const int clientfd, int* score){
-    pthread_mutex_lock(&player_lock);
     JsonValue* message = createGameOverMessage((const char**)userlist, score);
     send_free(clientfd, message);
-    pthread_mutex_unlock(&player_lock);
 }
 
 void* game_thread(void* arg) {
@@ -328,9 +326,10 @@ void game_turn(GameBoard* board){
 }
 
 void game_over(GameBoard* board) {
+    printf("game over1\n");
     pthread_mutex_lock(&player_lock);
     pthread_mutex_lock(&move_lock);
-
+    printf("game over2\n");
     // 최종 점수 계산
     countPieces(board);
     score[0] = board->redCount;

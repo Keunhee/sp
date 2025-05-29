@@ -250,6 +250,10 @@ void game_turn(GameBoard* board){
             }
             else {
                 io_move(fdlist[current], 1, board, userlist[current]); // invalid move
+                pthread_mutex_lock(&player_lock);
+                turn--;
+                pthread_mutex_unlock(&player_lock);
+
             }
         }
     } else { 

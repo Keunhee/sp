@@ -107,30 +107,36 @@ void io_register(const int clientfd, const char* name){
     // check whether if the name is already registered
     int already_registered = 0;
     for(int i = 0; i < player_count; i++) {
-        if(userlist[i] != NULL && strcmp(userlist[i], name) == 0) {
-            already_registered = 1;
-            break;
+        if(userlist[i] != NULL) {
+            printf("Comparing '%s' with '%s'\n", userlist[i], name);
+            if(strcmp(userlist[i], name) == 0) {
+                already_registered = 1;
+                break;
+            }
         }
     }
     if(already_registered) {
         message = createRegisterNackMessage("You already registered"); 
+        send_free(clientfd, message);
         close(clientfd); 
     }
     else if (player_count < 2) {
         userlist[player_count] = strdup(name);
         if (userlist[player_count] == NULL) {
             message = createRegisterNackMessage("Memory allocation failed");
+            send_free(clientfd, message);
             close(clientfd);
         } else {
             fdlist[player_count] = clientfd;
             player_count++;
             message = createRegisterAckMessage();
+            send_free(clientfd, message);
         }
     } else {
         message = createRegisterNackMessage("game is already running.");
+        send_free(clientfd, message);
         close(clientfd);
     }
-    send_free(clientfd, message);
     pthread_mutex_unlock(&player_lock);
 }
 

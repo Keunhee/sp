@@ -1,6 +1,7 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -g -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security
-LDFLAGS = -lpthread
+CC = clang
+CFLAGS = -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security
+# pthread 제거됨
+LDFLAGS = 
 
 # 기본 타겟
 all: server client test_octaflip
@@ -9,8 +10,8 @@ all: server client test_octaflip
 server: server.o octaflip.o json.o message_handler.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# 클라이언트 빌드
-client: client.o octaflip.o json.o message_handler.o led_matrix.o
+# 클라이언트 빌드 (pthread 제거됨)
+client: client.o octaflip.o json.o message_handler.o led_matrix.o ai_engine.o winning_strategy.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # 테스트 프로그램 빌드
@@ -37,11 +38,13 @@ run_test:
 
 # 종속성
 server.o: server.c octaflip.h json.h message_handler.h
-client.o: client.c octaflip.h json.h message_handler.h led_matrix.h
+client.o: client.c octaflip.h json.h message_handler.h led_matrix.h ai_engine.h
 test_octaflip.o: test_octaflip.c octaflip.h led_matrix.h
 octaflip.o: octaflip.c octaflip.h
 led_matrix.o: led_matrix.c led_matrix.h octaflip.h
 json.o: json.c json.h
 message_handler.o: message_handler.c message_handler.h json.h octaflip.h
+ai_engine.o: ai_engine.c ai_engine.h winning_strategy.h octaflip.h
+winning_strategy.o: winning_strategy.c winning_strategy.h ai_engine.h octaflip.h
 
 .PHONY: all clean run_server run_client run_test

@@ -5,15 +5,16 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <pthread.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
+#include <poll.h>
 #include "octaflip.h"
 #include "json.h"
 #include "message_handler.h"
 #include "led_matrix.h"
+#include "ai_engine.h"
 
 #define BUFFER_SIZE 1024
 
@@ -26,25 +27,23 @@ typedef enum {
     CLIENT_GAME_OVER
 } ClientState;
 
-// 전역 변수
+// 전역 변수 (pthread 제거됨)
 int client_socket = -1;
 ClientState client_state = CLIENT_CONNECTING;
 GameBoard game_board;
 char my_username[64];
 char my_color;
 char opponent_username[64];
-pthread_t receiver_thread;
-pthread_mutex_t board_mutex = PTHREAD_MUTEX_INITIALIZER;
 int led_enabled = 0;
 
 // 함수 선언
-void *receiver_function(void *arg);
 void handle_server_message(char *buffer);
 void send_register_message();
 void send_move_message(Move *move);
 Move generate_smart_move();
 void cleanup_and_exit(int status);
 void sigint_handler(int sig);
+int receive_message(char *buffer, int buffer_size);
 
 // 정리 및 종료 함수
 void cleanup_and_exit(int status) {
@@ -94,94 +93,41 @@ void send_move_message(Move *move) {
 }
 
 /**
- * 스마트 이동 생성 함수 (간단한 휴리스틱 적용)
- * 
- * 현재 게임 상태를 분석하여 가장 좋은 이동을 생성합니다.
- * 사용된 휴리스틱:
- * - 각 가능한 이동에 대해 이동 후 상태를 시뮬레이션
- * - 점수 = (자신의 말 수) - (상대의 말 수)
- * - 가장 높은 점수를 가진 이동 선택
- * 
- * @return 생성된 최적의 이동
+ * 강력한 AI 엔진을 사용한 최적 이동 생성 함수 (pthread 제거됨)
  */
 Move generate_smart_move() {
-    pthread_mutex_lock(&board_mutex);
+    printf("\n=== AI 엔진 시작 ===\n");
+    printf("현재 플레이어: %c\n", my_color);
+    printf("보드 상태: R=%d, B=%d, Empty=%d\n", 
+           game_board.redCount, game_board.blueCount, game_board.emptyCount);
     
-    Move best_move;
-    best_move.player = my_color;
-    best_move.sourceRow = best_move.sourceCol = best_move.targetRow = best_move.targetCol = 0;
+    // 강력한 AI 엔진을 사용하여 최적 이동 생성
+    Move best_move = generateWinningMove(&game_board, my_color);
     
-    int best_score = -1;
-    
-    // 모든 가능한 이동 탐색
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            // 현재 플레이어의 말이 있는 위치만 고려
-            if (game_board.cells[r][c] != my_color) continue;
-            
-            // 8방향으로 이동 가능성 탐색
-            for (int d = 0; d < 8; d++) {
-                // 1칸 또는 2칸 이동 시도
-                for (int s = 1; s <= 2; s++) {
-                    int nr = r + dRow[d] * s;
-                    int nc = c + dCol[d] * s;
-                    
-                    // 보드 범위 검사
-                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
-                    
-                    // 2칸 이동 시 중간 칸이 비어있는지 검사
-                    if (s == 2) {
-                        int mr = r + dRow[d];
-                        int mc = c + dCol[d];
-                        if (game_board.cells[mr][mc] == RED_PLAYER || 
-                            game_board.cells[mr][mc] == BLUE_PLAYER) continue;
-                    }
-                    
-                    // 목적지가 빈 칸인지 검사
-                    if (game_board.cells[nr][nc] == EMPTY_CELL) {
-                        // 임시 이동 생성
-                        Move move;
-                        move.player = my_color;
-                        move.sourceRow = r;
-                        move.sourceCol = c;
-                        move.targetRow = nr;
-                        move.targetCol = nc;
-                        
-                        // 임시 보드 생성하여 이동 시뮬레이션
-                        GameBoard temp_board;
-                        memcpy(&temp_board, &game_board, sizeof(GameBoard));
-                        
-                        // 이동 적용
-                        applyMove(&temp_board, &move);
-                        
-                        // 점수 계산 (자신의 말 수 - 상대 말 수)
-                        int my_pieces = (my_color == RED_PLAYER) ? temp_board.redCount : temp_board.blueCount;
-                        int opponent_pieces = (my_color == RED_PLAYER) ? temp_board.blueCount : temp_board.redCount;
-                        int score = my_pieces - opponent_pieces;
-                        
-                        // 더 좋은 이동을 찾았으면 업데이트
-                        if (score > best_score) {
-                            best_score = score;
-                            best_move = move;
-                        }
-                    }
-                }
-            }
-        }
+    if (best_move.sourceRow == 0 && best_move.sourceCol == 0 && 
+        best_move.targetRow == 0 && best_move.targetCol == 0) {
+        printf("AI 판단: 유효한 이동이 없어 패스합니다.\n");
+    } else {
+        printf("AI 선택: (%d,%d) -> (%d,%d)\n", 
+               best_move.sourceRow, best_move.sourceCol, 
+               best_move.targetRow, best_move.targetCol);
     }
-    
-    pthread_mutex_unlock(&board_mutex);
-    
-    // 유효한 이동이 없으면 패스 (0,0,0,0)
-    if (best_score == -1) {
-        printf("유효한 이동이 없습니다. 패스합니다.\n");
-        best_move.sourceRow = best_move.sourceCol = best_move.targetRow = best_move.targetCol = 0;
-    }
+    printf("=== AI 엔진 종료 ===\n\n");
     
     return best_move;
 }
 
-// 서버 메시지 처리
+// 메시지 수신 함수 (비차단)
+int receive_message(char *buffer, int buffer_size) {
+    int bytes_received = recv(client_socket, buffer, buffer_size - 1, MSG_DONTWAIT);
+    if (bytes_received > 0) {
+        buffer[bytes_received] = '\0';
+        return bytes_received;
+    }
+    return 0;
+}
+
+// 서버 메시지 처리 (pthread 제거됨)
 void handle_server_message(char *buffer) {
     JsonValue *json_obj = json_parse(buffer);
     if (!json_obj) {
@@ -199,7 +145,6 @@ void handle_server_message(char *buffer) {
         }
         
         case MSG_REGISTER_NACK: {
-            // 등록 실패 처리
             JsonValue *reason_json = json_object_get(json_obj, "reason");
             if (reason_json && json_is_string(reason_json)) {
                 printf("등록 실패: %s\n", json_string_value(reason_json));
@@ -237,9 +182,7 @@ void handle_server_message(char *buffer) {
                 printf("내 색상: %c\n", my_color);
                 
                 // 보드 초기화
-                pthread_mutex_lock(&board_mutex);
                 initializeBoard(&game_board);
-                pthread_mutex_unlock(&board_mutex);
                 
                 // LED 매트릭스에 초기 보드 표시
                 if (led_enabled) {
@@ -252,7 +195,6 @@ void handle_server_message(char *buffer) {
         }
         
         case MSG_YOUR_TURN: {
-            pthread_mutex_lock(&board_mutex);
             double timeout;
             
             if (parseYourTurnMessage(json_obj, &game_board, &timeout)) {
@@ -268,79 +210,30 @@ void handle_server_message(char *buffer) {
                 }
                 
                 client_state = CLIENT_YOUR_TURN;
-            }
-            pthread_mutex_unlock(&board_mutex);
-            
-            // 자동 이동 생성 및 전송
-            if (client_state == CLIENT_YOUR_TURN) {
-                Move move = generate_smart_move();
-                // 이동 전 유효성 로컬 검증
-                pthread_mutex_lock(&board_mutex);
-                int valid = isValidMove(&game_board, &move);
-                pthread_mutex_unlock(&board_mutex);
                 
-                if (valid) {
+                // 자동 이동 생성 및 전송
+                Move move = generate_smart_move();
+                
+                // 이동 전 유효성 로컬 검증
+                int valid = isValidMove(&game_board, &move);
+                
+                if (valid || (move.sourceRow == 0 && move.sourceCol == 0 && 
+                             move.targetRow == 0 && move.targetCol == 0)) {
                     send_move_message(&move);
                     client_state = CLIENT_WAITING;
                 } else {
-                    printf("경고: 생성된 이동이 유효하지 않습니다. 패스합니다.\n");
-                    move.sourceRow = move.sourceCol = move.targetRow = move.targetCol = 0;
-                    send_move_message(&move);
+                    printf("로컬 검증 실패. 패스합니다.\n");
+                    Move pass_move = {my_color, 0, 0, 0, 0};
+                    send_move_message(&pass_move);
                     client_state = CLIENT_WAITING;
                 }
             }
             break;
         }
         
-        case MSG_MOVE_OK:
-        case MSG_INVALID_MOVE:
         case MSG_PASS: {
-            pthread_mutex_lock(&board_mutex);
-            char next_player[64];
-            
-            if (parseMoveResultMessage(json_obj, &game_board, next_player)) {
-                if (msg_type == MSG_MOVE_OK) {
-                    printf("이동 성공. 다음 플레이어: %s\n", next_player);
-                } else if (msg_type == MSG_INVALID_MOVE) {
-                    printf("유효하지 않은 이동. 다음 플레이어: %s\n", next_player);
-                } else {
-                    printf("패스. 다음 플레이어: %s\n", next_player);
-                }
-                
-                // 보드 출력
-                if (msg_type != MSG_PASS) {
-                    printf("현재 보드 상태:\n");
-                    printBoard(&game_board);
-                    
-                    // LED 매트릭스에 보드 표시
-                    if (led_enabled) {
-                        drawBoardOnLED(&game_board);
-                    }
-                }
-                
-                // 내 차례인지 확인
-                if (strcmp(next_player, my_username) == 0) {
-                    client_state = CLIENT_YOUR_TURN;
-                    
-                    // 자동 이동 생성 및 전송
-                    Move move = generate_smart_move();
-                    // 이동 전 유효성 로컬 검증
-                    int valid = isValidMove(&game_board, &move);
-                    
-                    if (valid) {
-                        send_move_message(&move);
-                        client_state = CLIENT_WAITING;
-                    } else {
-                        printf("경고: 생성된 이동이 유효하지 않습니다. 패스합니다.\n");
-                        move.sourceRow = move.sourceCol = move.targetRow = move.targetCol = 0;
-                        send_move_message(&move);
-                        client_state = CLIENT_WAITING;
-                    }
-                } else {
-                    client_state = CLIENT_WAITING;
-                }
-            }
-            pthread_mutex_unlock(&board_mutex);
+            printf("패스 메시지 수신\n");
+            // 패스 메시지는 단순히 로그만 출력
             break;
         }
         
@@ -349,26 +242,22 @@ void handle_server_message(char *buffer) {
             int scores[2];
             
             if (parseGameOverMessage(json_obj, players, scores)) {
-                printf("게임 종료!\n");
-                printf("최종 점수: %s: %d, %s: %d\n", 
-                       players[0], scores[0], players[1], scores[1]);
-                
-                // 승자 결정
                 if (scores[0] > scores[1]) {
-                    printf("승자: %s\n", players[0]);
+                    printf("게임 종료! 승자: %s\n", players[0]);
+                    if (strcmp(players[0], my_username) == 0) {
+                        printf("축하합니다! 당신이 승리했습니다!\n");
+                    } else {
+                        printf("아쉽습니다. 다음 기회에 도전하세요.\n");
+                    }
                 } else if (scores[1] > scores[0]) {
-                    printf("승자: %s\n", players[1]);
+                    printf("게임 종료! 승자: %s\n", players[1]);
+                    if (strcmp(players[1], my_username) == 0) {
+                        printf("축하합니다! 당신이 승리했습니다!\n");
+                    } else {
+                        printf("아쉽습니다. 다음 기회에 도전하세요.\n");
+                    }
                 } else {
-                    printf("무승부!\n");
-                }
-                
-                // 현재 보드 출력
-                printf("최종 보드 상태:\n");
-                printBoard(&game_board);
-                
-                // LED 매트릭스에 최종 보드 표시
-                if (led_enabled) {
-                    drawBoardOnLED(&game_board);
+                    printf("게임 종료! 무승부입니다.\n");
                 }
                 
                 client_state = CLIENT_GAME_OVER;
@@ -384,46 +273,7 @@ void handle_server_message(char *buffer) {
     json_free(json_obj);
 }
 
-// 수신 스레드 함수
-void *receiver_function(void *arg __attribute__((unused))) {
-    char buffer[BUFFER_SIZE];
-    
-    while (1) {
-        // 서버로부터 데이터 수신
-        int valread = recv(client_socket, buffer, BUFFER_SIZE - 1, 0);
-        
-        if (valread > 0) {
-            // 항상 null 종료 보장
-            if (valread < BUFFER_SIZE)
-                buffer[valread] = '\0';
-            else
-                buffer[BUFFER_SIZE - 1] = '\0';
-            handle_server_message(buffer);
-            
-            // 게임 종료 확인
-            if (client_state == CLIENT_GAME_OVER) {
-                break;
-            }
-        } else if (valread == 0) {
-            // 서버 연결 종료
-            printf("서버와의 연결이 종료되었습니다.\n");
-            break;
-        } else {
-            // 오류 발생
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                perror("recv failed");
-                break;
-            }
-            
-            // 잠시 대기
-            usleep(10000);  // 10ms
-        }
-    }
-    
-    return NULL;
-}
-
-// 메인 함수
+// 메인 함수 (pthread 제거됨)
 int main(int argc, char *argv[]) {
     char ip_address[32] = "127.0.0.1";
     int port = 8888;
@@ -499,48 +349,46 @@ int main(int argc, char *argv[]) {
         cleanup_and_exit(1);
     }
     
-    printf("서버에 연결되었습니다. (IP: %s, 포트: %d)\n", ip_address, port);
-    
-    // 비차단 모드로 설정
-    int flags = fcntl(client_socket, F_GETFL, 0);
-    fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+    printf("서버에 연결되었습니다: %s:%d\n", ip_address, port);
     
     // 등록 메시지 전송
     send_register_message();
     
-    // 수신 스레드 생성
-    if (pthread_create(&receiver_thread, NULL, receiver_function, NULL) != 0) {
-        perror("스레드 생성 실패");
-        cleanup_and_exit(1);
-    }
+    // 메인 루프 (pthread 대신 poll 사용)
+    char buffer[BUFFER_SIZE];
+    struct pollfd fds[1];
+    fds[0].fd = client_socket;
+    fds[0].events = POLLIN;
     
-    // 메인 루프
     while (client_state != CLIENT_GAME_OVER) {
-        // 잠시 대기
-        usleep(100000);  // 100ms
+        // poll로 소켓 상태 확인 (100ms 타임아웃)
+        int poll_result = poll(fds, 1, 100);
         
-        // YOUR_TURN 상태인 경우 자동 이동 생성 및 전송
-        if (client_state == CLIENT_YOUR_TURN) {
-            Move move = generate_smart_move();
-            // 이동 전 유효성 로컬 검증
-            pthread_mutex_lock(&board_mutex);
-            int valid = isValidMove(&game_board, &move);
-            pthread_mutex_unlock(&board_mutex);
+        if (poll_result > 0 && (fds[0].revents & POLLIN)) {
+            // 메시지 수신
+            int bytes_received = recv(client_socket, buffer, BUFFER_SIZE - 1, 0);
             
-            if (valid) {
-                send_move_message(&move);
-                client_state = CLIENT_WAITING;
+            if (bytes_received > 0) {
+                buffer[bytes_received] = '\0';
+                printf("서버로부터 메시지: %s\n", buffer);
+                handle_server_message(buffer);
+            } else if (bytes_received == 0) {
+                printf("서버 연결이 종료되었습니다.\n");
+                break;
             } else {
-                printf("경고: 생성된 이동이 유효하지 않습니다. 패스합니다.\n");
-                move.sourceRow = move.sourceCol = move.targetRow = move.targetCol = 0;
-                send_move_message(&move);
-                client_state = CLIENT_WAITING;
+                perror("메시지 수신 오류");
+                break;
             }
+        } else if (poll_result < 0 && errno != EINTR) {
+            perror("poll 오류");
+            break;
         }
+        
+        // 100ms 대기 (CPU 사용률 감소)
+        usleep(100000);
     }
     
-    // 스레드 조인
-    pthread_join(receiver_thread, NULL);
+    printf("게임이 종료되었습니다.\n");
     
     // 정리 및 종료
     cleanup_and_exit(0);

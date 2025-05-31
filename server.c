@@ -58,35 +58,7 @@ static char recv_buffer[MAX_CLIENTS][BUFFER_SIZE];
 static size_t recv_len[MAX_CLIENTS] = {0};
 
 // JSON 메시지 수신 및 분할 후 핸들러로 넘기는 함수
-void read_and_dispatch_json_messages(int client_idx, int sockfd) {
-    char *p;
-    ssize_t r = recv(sockfd,
-                     recv_buffer[client_idx] + recv_len[client_idx],
-                     BUFFER_SIZE - recv_len[client_idx] - 1,
-                     0);
-    if (r <= 0) {
-        if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            perror("recv");
-        }
-        handle_client_disconnect(sockfd);
-        return;
-    }
 
-    recv_len[client_idx] += r;
-    recv_buffer[client_idx][recv_len[client_idx]] = '\0';
-
-    // '\n' 기준으로 메시지를 분리
-    while ((p = strchr(recv_buffer[client_idx], '\n')) != NULL) {
-        *p = '\0';
-        if (strlen(recv_buffer[client_idx]) > 0) {
-            handle_client_message(client_idx, recv_buffer[client_idx]);
-        }
-        // 처리된 메시지를 버퍼에서 제거
-        size_t remain = recv_len[client_idx] - (p - recv_buffer[client_idx] + 1);
-        memmove(recv_buffer[client_idx], p + 1, remain);
-        recv_len[client_idx] = remain;
-        recv_buffer[client_idx][recv_len[client_idx]] = '\0';
-    }}
 // 시그널 핸들러
 void cleanup_and_exit(int signal __attribute__((unused))) {
     printf("\n서버 종료 중...\n");

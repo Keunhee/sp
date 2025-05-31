@@ -4,9 +4,9 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
+
 #if defined(__aarch64__)
-// ARMv8 환경일 때만 어셈블리 적용
-static inline bool isCorner(int r, int c) {
+bool isCorner(int r, int c) {
     bool result;
     register int board_max asm("w3") = BOARD_SIZE - 1;
     asm volatile (
@@ -29,61 +29,60 @@ static inline bool isCorner(int r, int c) {
     return result;
 }
 #else
-static inline bool isCorner(int r, int c) {
+bool isCorner(int r, int c) {
     return (r == 0 || r == BOARD_SIZE - 1) && (c == 0 || c == BOARD_SIZE - 1);
 }
 #endif
 
-// NEON 벡터 최적화 포함 평가 함수 (조건부)
-int evaluateBoard(const GameBoard *board, char player) {
 #if defined(__aarch64__)
+int evaluateBoard(const GameBoard *board, char player) {
     int player_score = 0;
     int opponent_score = 0;
     char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
 
     for (int r = 0; r < BOARD_SIZE; r++) {
-        char *board_row_ptr = &board->cells[r][0];
-        short *weights_row_ptr = &POSITION_WEIGHTS[r][0];
+        // board->cells[r]는 char 타입 요소들을 가리킨다고 가정
+        const char *board_row_ptr = (const char *)&board->cells[r][0];
+        // POSITION_WEIGHTS가 short[][] 타입이라고 가정
+        const short *weights_row_ptr = (const short *)&POSITION_WEIGHTS[r][0];
 
         asm volatile (
-            "ld1    {v0.8b}, [%[board_ptr]]\n"
-            "ld1    {v1.8h}, [%[weights_ptr]]\n"
-            "dup    v10.8b, %[p_id]\n"
-            "dup    v11.8b, %[o_id]\n"
-            "cmeq   v2.8b, v0.8b, v10.8b\n"
-            "cmeq   v3.8b, v0.8b, v11.8b\n"
-            "sxtl   v4.8h, v2.8b\n"
-            "and    v6.8h, v1.8h, v4.8h\n"
-            "sxtl   v7.8h, v3.8b\n"
-            "and    v8.8h, v1.8h, v7.8h\n"
-            "uaddlv s12, v6.8h\n"
-            "uaddlv s13, v8.8h\n"
-            "fmov   w10, s12\n"
-            "fmov   w11, s13\n"
-            "add    %[p_score], %[p_score], w10\n"
-            "add    %[o_score], %[o_score], w11\n"
-            : [p_score] "+r" (player_score),
-              [o_score] "+r" (opponent_score)
-            : [board_ptr] "r" (board_row_ptr),
+            "ld1    {v0.8b}, [%[board_ptr]]\n"         // 보드 행에서 8 바이트 로드
+            "ld1    {v1.8h}, [%[weights_ptr]]\n"       // 가중치에서 8 쇼트(short) 로드
+            "dup    v10.8b, %w[p_id_asm]\n"            // player_id (바이트)를 v10으로 복제. %w 사용.
+            "dup    v11.8b, %w[o_id_asm]\n"            // opponent_id (바이트)를 v11으로 복제. %w 사용.
+            "cmeq   v2.8b, v0.8b, v10.8b\n"            // v2[i] = (board[i] == player_id) ? 0xFF : 0x00
+            "cmeq   v3.8b, v0.8b, v11.8b\n"            // v3[i] = (board[i] == opponent_id) ? 0xFF : 0x00
+            "sxtl   v4.8h, v2.8b\n"                    // v2 (바이트)를 v4 (쇼트)로 부호 확장. 결과: 0x0000 또는 0xFFFF.
+            "sxtl   v7.8h, v3.8b\n"                    // v3 (바이트)를 v7 (쇼트)로 부호 확장. 결과: 0x0000 또는 0xFFFF.
+            "and    v6.8h, v1.8h, v4.8h\n"             // 비트 AND. v4[i]가 0xFFFF이면 v6[i]=v1[i]. 0x0000이면 v6[i]=0. (플레이어 점수 부분)
+            "and    v8.8h, v1.8h, v7.8h\n"             // (상대방 점수 부분)
+            "uaddlv s12, v6.8h\n"                     // v6의 요소들(플레이어 점수)을 스칼라 s12로 합산
+            "uaddlv s13, v8.8h\n"                     // v8의 요소들(상대방 점수)을 스칼라 s13으로 합산
+            "fmov   w10, s12\n"                        // NEON 스칼라 s12를 GPR w10으로 이동
+            "fmov   w11, s13\n"                        // NEON 스칼라 s13를 GPR w11으로 이동
+            "add    %w[p_score_asm], %w[p_score_asm], w10\n" // 플레이어 점수에 합산 (32비트). %w 사용.
+            "add    %w[o_score_asm], %w[o_score_asm], w11\n" // 상대방 점수에 합산 (32비트). %w 사용.
+            : [p_score_asm] "+r" (player_score),      // 출력이자 입력 변수 (+r 제약조건)
+              [o_score_asm] "+r" (opponent_score)
+            : [board_ptr] "r" (board_row_ptr),        // 입력 변수들
               [weights_ptr] "r" (weights_row_ptr),
-              [p_id] "r" (player),
-              [o_id] "r" (opponent)
-            : "v0", "v1", "v2", "v3", "v4", "v6", "v7", "v8",
+              [p_id_asm] "r" (player),                // player는 char 타입, int로 확장되어 w 레지스터에 적합
+              [o_id_asm] "r" (opponent)              // opponent도 char 타입
+            : "v0", "v1", "v2", "v3", "v4", "v6", "v7", "v8", // 변경되는 NEON 레지스터들
               "v10", "v11", "s12", "s13",
-              "w10", "w11", "cc", "memory"
+              "w10", "w11",                                  // 변경되는 GPR들
+              "cc", "memory"                                 // 변경되는 상태 플래그 및 메모리 접근 명시
         );
     }
     return player_score - opponent_score;
+}
 #else
-    // 기존 평가 함수로 fallback
+    // NEON 최적화를 사용하지 않는 플랫폼을 위한 fallback 함수
     return evaluateBoard_fallback(board, player);
 #endif
-}
 
-// 위 NEON 최적화를 사용하지 않는 플랫폼을 위한 fallback 함수
-int evaluateBoard_fallback(const GameBoard *board, char player);
-// 위치별 가중치 테이블 (중앙과 코너가 중요)
-int POSITION_WEIGHTS[BOARD_SIZE][BOARD_SIZE] = {
+short POSITION_WEIGHTS[BOARD_SIZE][BOARD_SIZE] = {
     {100, -20, 20, 5, 5, 20, -20, 100},
     {-20, -40, -5, -5, -5, -5, -40, -20},
     {20, -5, 15, 3, 3, 15, -5, 20},
@@ -93,7 +92,6 @@ int POSITION_WEIGHTS[BOARD_SIZE][BOARD_SIZE] = {
     {-20, -40, -5, -5, -5, -5, -40, -20},
     {100, -20, 20, 5, 5, 20, -20, 100}
 };
-
 // Zobrist 해시용 랜덤 테이블
 static unsigned long long zobrist_table[BOARD_SIZE][BOARD_SIZE][3];
 static int zobrist_initialized = 0;

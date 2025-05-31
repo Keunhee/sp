@@ -55,8 +55,8 @@ int evaluateBoard(const GameBoard *board, char player) {
             "cmeq   v3.8b, v0.8b, v11.8b\n"            // v3[i] = (board[i] == opponent_id) ? 0xFF : 0x00
             "sxtl   v4.8h, v2.8b\n"                    // v2 (바이트)를 v4 (쇼트)로 부호 확장. 결과: 0x0000 또는 0xFFFF.
             "sxtl   v7.8h, v3.8b\n"                    // v3 (바이트)를 v7 (쇼트)로 부호 확장. 결과: 0x0000 또는 0xFFFF.
-            "and    v6.8h, v1.8h, v4.8h\n"             // 비트 AND. v4[i]가 0xFFFF이면 v6[i]=v1[i]. 0x0000이면 v6[i]=0. (플레이어 점수 부분)
-            "and    v8.8h, v1.8h, v7.8h\n"             // (상대방 점수 부분)
+            "and    v6.16b, v1.16b, v4.16b\n"             // 비트 AND. v4[i]가 0xFFFF이면 v6[i]=v1[i]. 0x0000이면 v6[i]=0. (플레이어 점수 부분)
+            "and    v8.16b, v1.16b, v7.16b\n"             // (상대방 점수 부분)
             "uaddlv s12, v6.8h\n"                     // v6의 요소들(플레이어 점수)을 스칼라 s12로 합산
             "uaddlv s13, v8.8h\n"                     // v8의 요소들(상대방 점수)을 스칼라 s13으로 합산
             "fmov   w10, s12\n"                        // NEON 스칼라 s12를 GPR w10으로 이동

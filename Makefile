@@ -1,20 +1,20 @@
-CC = clang
-CFLAGS = -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security
-# pthread 제거됨
-LDFLAGS = 
+CC = gcc
+CFLAGS = -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security \
+         -I/usr/local/include
+LDFLAGS = -L/usr/local/lib -lrgbmatrix -lpthread -lm -lrt -Wl,-rpath,/usr/local/lib
 
 # 기본 타겟
 all: server client test_octaflip
 
-# 서버 빌드
+# 서버 빌드 (LED 없음)
 server: server.o octaflip.o json.o message_handler.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ 
 
-# 클라이언트 빌드 (pthread 제거됨)
+# 클라이언트 빌드 (LED 포함)
 client: client.o octaflip.o json.o message_handler.o led_matrix.o ai_engine.o winning_strategy.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# 테스트 프로그램 빌드
+# 테스트 프로그램 빌드 (LED 포함)
 test_octaflip: test_octaflip.o octaflip.o led_matrix.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -31,7 +31,7 @@ run_server:
 	./server
 
 run_client:
-	./client -ip 127.0.0.1 -port 8888 -username Player1
+	./client -ip 127.0.0.1 -port 8888 -username Player1 -led
 
 run_test:
 	./run_test.sh

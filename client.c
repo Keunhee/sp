@@ -403,7 +403,7 @@ int main(int argc, char *argv[]) {
         printf("[LED] === 64x64 LED Matrix 초기화 (과제 요구사항) ===\n");
         if (ledMatrixInit() != 0) {
             fprintf(stderr, "LED 매트릭스 초기화 실패\n");
-            led_enabled = 0;
+            led_enabled = 1;
         } else {
             printf("[LED] LED Matrix 초기화 완료!\n");
             printf("[LED] 과제 규격: 64x64 픽셀 패널, 8x8 게임 그리드\n");

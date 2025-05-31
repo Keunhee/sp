@@ -1,6 +1,6 @@
 #ifndef AI_ENGINE_H
 #define AI_ENGINE_H
-
+#include <stdbool.h>
 #include "octaflip.h"
 #include <time.h>
 #include <limits.h>
@@ -47,7 +47,7 @@ void storeInTT(AIEngine *engine, unsigned long long hash, int depth, int value,
 TTEntry* lookupTT(AIEngine *engine, unsigned long long hash);
 int getMobility(const GameBoard *board, char player);
 int getStability(const GameBoard *board, char player);
-int isCorner(int row, int col);
+bool isCorner(int row, int col);
 int isEdge(int row, int col);
 void getAllValidMoves(const GameBoard *board, char player, Move *moves, int *count);
 int isTimeUp(AIEngine *engine);

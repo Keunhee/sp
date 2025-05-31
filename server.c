@@ -135,7 +135,7 @@ void handle_client_disconnect(int socket_fd) {
             char *json_str = json_stringify(game_over_msg);
             
             send(clients[other_idx].socket, json_str, strlen(json_str), 0);
-            
+            send(clients[other_idx].socket, "\n", 1, 0);
             free(json_str);
             json_free(game_over_msg);
             
@@ -175,6 +175,7 @@ void check_timeout() {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].socket != -1) {
                 send(clients[i].socket, json_str, strlen(json_str), 0);
+                send(clients[i].socket, "\n", 1, 0);
             }
         }
         
@@ -229,6 +230,7 @@ void handle_register_message(int client_idx, JsonValue *json_obj) {
     JsonValue *ack_msg = createRegisterAckMessage();
     char *json_str = json_stringify(ack_msg);
     send(clients[client_idx].socket, json_str, strlen(json_str), 0);
+    send(clients[client_idx].socket, "\n", 1, 0);
     free(json_str);
     json_free(ack_msg);
     
@@ -293,6 +295,7 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (clients[i].socket != -1) {
                     send(clients[i].socket, json_str, strlen(json_str), 0);
+                    send(clients[i].socket, "\n", 1, 0);
                 }
             }
             
@@ -368,6 +371,7 @@ void broadcast_game_start() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket != -1) {
             send(clients[i].socket, json_str, strlen(json_str), 0);
+            send(clients[i].socket, "\n", 1, 0);
         }
     }
     
@@ -391,7 +395,7 @@ void send_your_turn(int client_idx) {
     char *json_str = json_stringify(turn_msg);
     
     send(clients[client_idx].socket, json_str, strlen(json_str), 0);
-    
+    send(clients[client_idx].socket, "\n", 1, 0);
     free(json_str);
     json_free(turn_msg);
     
@@ -415,6 +419,7 @@ void broadcast_game_over() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket != -1) {
             send(clients[i].socket, json_str, strlen(json_str), 0);
+            send(clients[i].socket, "\n", 1, 0);
         }
     }
     

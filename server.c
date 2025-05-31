@@ -149,41 +149,61 @@ void handle_client_disconnect(int socket_fd) {
     }
 }
 
-// 타임아웃 확인
 void check_timeout() {
     if (server_state != SERVER_GAME_IN_PROGRESS) {
         return;
     }
-    
+
     struct timeval current_time;
     gettimeofday(&current_time, NULL);
-    
-    double elapsed = (current_time.tv_sec - turn_start_time.tv_sec) + 
-                    (current_time.tv_usec - turn_start_time.tv_usec) / 1000000.0;
-    
+
+    double elapsed = (current_time.tv_sec - turn_start_time.tv_sec) +
+                     (current_time.tv_usec - turn_start_time.tv_usec) / 1000000.0;
+
     if (elapsed > TIMEOUT_SEC) {
-        printf("플레이어 %s 타임아웃. 턴을 넘깁니다.\n", clients[current_player_idx].username);
-        
-        // 다음 플레이어로 전환
+        char player_color = clients[current_player_idx].color;
+
+        if (hasValidMove(&game_board, player_color)) {
+            printf("합법적인 수가 남아 있으므로 invalid_move 메시지 전송\n");
+
+            JsonValue *invalid_msg = createInvalidMoveMessage(&game_board,
+                                                              clients[current_player_idx].username);
+            char *invalid_json = json_stringify(invalid_msg);
+
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (clients[i].socket != -1) {
+                    send(clients[i].socket, invalid_json, strlen(invalid_json), 0);
+                    send(clients[i].socket, "\n", 1, 0);
+                }
+            }
+
+            free(invalid_json);
+            json_free(invalid_msg);
+
+            gettimeofday(&turn_start_time, NULL);
+            return;
+        }
+
+        printf("합법적인 수가 없어서 진짜 패스 처리 (move_ok로 간주)\n");
+
+        game_board.consecutivePasses++;
+
         int next_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
-        
-        // 패스 메시지 보내기
-        JsonValue *pass_msg = createPassMessage(clients[next_player_idx].username);
-        char *json_str = json_stringify(pass_msg);
-        
-        // 모든 클라이언트에게 패스 메시지 전송
+
+        JsonValue *move_ok_msg = createMoveOkMessage(&game_board,
+                                                     clients[next_player_idx].username);
+        char *move_ok_json = json_stringify(move_ok_msg);
+
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].socket != -1) {
-                send(clients[i].socket, json_str, strlen(json_str), 0);
+                send(clients[i].socket, move_ok_json, strlen(move_ok_json), 0);
                 send(clients[i].socket, "\n", 1, 0);
             }
         }
-        
-        free(json_str);
-        json_free(pass_msg);
-        
-        // 연속 패스 처리
-        game_board.consecutivePasses++;
+
+        free(move_ok_json);
+        json_free(move_ok_msg);
+
         if (game_board.consecutivePasses >= 2 || hasGameEnded(&game_board)) {
             broadcast_game_over();
         } else {

@@ -80,17 +80,30 @@ void send_register_message() {
 
 // 이동 메시지 전송
 void send_move_message(Move *move) {
+    // **화면에 출력할 땐 1-base로 보여주기**
+    if (move->sourceRow == 0 && move->sourceCol == 0 &&
+        move->targetRow == 0 && move->targetCol == 0) {
+        
+        printf("이동 (패스) 를 서버에 전송합니다.\n");
+    } else {
+        printf("이동 (%d,%d) -> (%d,%d) 를 서버에 전송합니다.\n",
+               move->sourceRow + 1,   // 화면 출력은 1-base
+               move->sourceCol + 1,
+               move->targetRow + 1,
+               move->targetCol + 1);
+    }
+
+   
     JsonValue *json_obj = createMoveMessage(my_username, move);
     char *json_str = json_stringify(json_obj);
-    
+
     send(client_socket, json_str, strlen(json_str), 0);
-    
+    send(client_socket, "\n", 1, 0);
+
     free(json_str);
     json_free(json_obj);
-    
-    printf("이동 (%d,%d) -> (%d,%d)를 서버에 전송했습니다.\n", 
-           move->sourceRow, move->sourceCol, move->targetRow, move->targetCol);
 }
+
 
 /**
  * 강력한 AI 엔진을 사용한 최적 이동 생성 함수 (pthread 제거됨)

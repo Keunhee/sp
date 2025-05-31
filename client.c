@@ -172,14 +172,14 @@ void handle_server_message(char *buffer) {
         }
         
         case MSG_REGISTER_NACK: {
-    JsonValue *reason_json = json_object_get(json_obj, "reason");
-    const char *reason = (reason_json && json_is_string(reason_json))
-                         ? json_string_value(reason_json)
-                         : "unknown";
-    printf("[Client] register_nack received. Reason: %s\n", reason);
-    cleanup_and_exit(1);
-    break;
-}
+            JsonValue *reason_json = json_object_get(json_obj, "reason");
+            const char *reason = (reason_json && json_is_string(reason_json))
+                                 ? json_string_value(reason_json)
+                                 : "unknown";
+            printf("[Client] register_nack received. Reason: %s\n", reason);
+            cleanup_and_exit(1);
+            break;
+        }
         
         case MSG_GAME_START: {
             char players[2][64];
@@ -210,8 +210,9 @@ void handle_server_message(char *buffer) {
                 // 보드 초기화
                 initializeBoard(&game_board);
                 
-                // LED 매트릭스에 초기 보드 표시
+                // LED 매트릭스에 초기 보드 표시 (과제 요구사항)
                 if (led_enabled) {
+                    printf("[LED] 초기 게임 보드를 64x64 LED 패널에 표시합니다.\n");
                     drawBoardOnLED(&game_board);
                 }
                 
@@ -219,101 +220,133 @@ void handle_server_message(char *buffer) {
             }
             break;
         }
-        case MSG_INVALID_MOVE: {
-    printf("[Client] Received invalid_move. Retrying...\n");
- 
-    Move retry_move = generate_smart_move();
-    printf("[Client] Retrying Move: (%d,%d)->(%d,%d)\n",
-           retry_move.sourceRow + 1, retry_move.sourceCol + 1,
-           retry_move.targetRow + 1, retry_move.targetCol + 1);
-    send_move_message(&retry_move);
-    break;
-}
-       case MSG_YOUR_TURN: {
-    double timeout;
-
-    if (parseYourTurnMessage(json_obj, &game_board, &timeout)) {
-        printf("[Client] Your turn. Timeout: %.1f sec\n", timeout);
-        printf("[Client] Current board:\n");
-        printBoard(&game_board);
-
-        if (led_enabled) {
-            drawBoardOnLED(&game_board);
-        }
-
-        client_state = CLIENT_YOUR_TURN;
-
-        // --- 1-base 좌표로 로그 찍으면서 Move 생성 ---
-        Move move = generate_smart_move();
-        int sR = move.sourceRow + 1;
-        int sC = move.sourceCol + 1;
-        int tR = move.targetRow + 1;
-        int tC = move.targetCol + 1;
-
-        if (sR == 1 && sC == 1 && tR == 1 && tC == 1) {
-            // (0,0,0,0)을 1-based로 치환할 수 없으므로
-            // 실제 패스일 땐 로그만 “0,0,0,0”로 찍고 전송
-            printf("[Client] No valid moves → passing (0,0,0,0)\n");
-        } else {
-            printf("[Client] Sending Move: (%d,%d)->(%d,%d)\n", sR, sC, tR, tC);
-        }
-
-        printf("[Client] Board after move generation (예상):\n");
-        printBoard(&game_board);
-
-        send_move_message(&move);  // 내부에서 “JSON + '\n'” 전송됨
-        client_state = CLIENT_WAITING;
-    }
-    break;
-}
-        case MSG_MOVE_OK: {
-    // parseMoveResultMessage()로 board 정보, next_player 추출
-    GameBoard updated_board;
-    char nextPlayer[64];
-    if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
-        memcpy(&game_board, &updated_board, sizeof(GameBoard)); // 로컬 보드 동기화
-        printf("[Client] Received move_ok. Board updated:\n");
-        printBoard(&game_board);
-        if (strcmp(nextPlayer, my_username) == 0) {
-            printf("[Client] It's your turn next.\n");
-        } else {
-            printf("[Client] Waiting for opponent (%s).\n", nextPlayer);
-        }
-    }
-    break;
-}
-        case MSG_PASS: {
-    char nextPlayer[64];
-    // pass 메시지는 보드 정보가 없을 수 있음 → parseMoveResultMessage() 사용
-    GameBoard updated_board;
-    if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
-        memcpy(&game_board, &updated_board, sizeof(GameBoard));
-    }
-    printf("[Client] Opponent passed. Board now:\n");
-    printBoard(&game_board);
-    break;
-}
         
-case MSG_GAME_OVER: {
-    char players[2][64];
-    int scores[2];
-    if (parseGameOverMessage(json_obj, players, scores)) {
-        printf("[Client] Game over. Scores: %s=%d, %s=%d\n",
-               players[0], scores[0], players[1], scores[1]);
-        if (strcmp(players[0], my_username) == 0 && scores[0] > scores[1]) {
-            printf("[Client] You (%s) won!\n", players[0]);
-        } else if (strcmp(players[1], my_username) == 0 && scores[1] > scores[0]) {
-            printf("[Client] You (%s) won!\n", players[1]);
-        } else if (scores[0] == scores[1]) {
-            printf("[Client] Draw!\n");
-        } else {
-            printf("[Client] You lost.\n");
+        case MSG_INVALID_MOVE: {
+            printf("[Client] Received invalid_move. Retrying...\n");
+ 
+            Move retry_move = generate_smart_move();
+            printf("[Client] Retrying Move: (%d,%d)->(%d,%d)\n",
+                   retry_move.sourceRow + 1, retry_move.sourceCol + 1,
+                   retry_move.targetRow + 1, retry_move.targetCol + 1);
+            send_move_message(&retry_move);
+            break;
         }
-        client_state = CLIENT_GAME_OVER;
-        cleanup_and_exit(0);
-    }
-    break;
-}
+        
+        case MSG_YOUR_TURN: {
+            double timeout;
+
+            if (parseYourTurnMessage(json_obj, &game_board, &timeout)) {
+                printf("[Client] Your turn. Timeout: %.1f sec\n", timeout);
+                printf("[Client] Current board:\n");
+                printBoard(&game_board);
+
+                // LED 매트릭스 업데이트 (과제 요구사항: 내 차례 시)
+                if (led_enabled) {
+                    printf("[LED] 내 차례 - 보드 상태를 LED 패널에 업데이트합니다.\n");
+                    drawBoardOnLED(&game_board);
+                }
+
+                client_state = CLIENT_YOUR_TURN;
+
+                // --- 1-base 좌표로 로그 찍으면서 Move 생성 ---
+                Move move = generate_smart_move();
+                int sR = move.sourceRow + 1;
+                int sC = move.sourceCol + 1;
+                int tR = move.targetRow + 1;
+                int tC = move.targetCol + 1;
+
+                if (sR == 1 && sC == 1 && tR == 1 && tC == 1) {
+                    // (0,0,0,0)을 1-based로 치환할 수 없으므로
+                    // 실제 패스일 땐 로그만 "0,0,0,0"로 찍고 전송
+                    printf("[Client] No valid moves → passing (0,0,0,0)\n");
+                } else {
+                    printf("[Client] Sending Move: (%d,%d)->(%d,%d)\n", sR, sC, tR, tC);
+                }
+
+                printf("[Client] Board after move generation (예상):\n");
+                printBoard(&game_board);
+
+                send_move_message(&move);  // 내부에서 "JSON + '\n'" 전송됨
+                client_state = CLIENT_WAITING;
+            }
+            break;
+        }
+        
+        case MSG_MOVE_OK: {
+            // parseMoveResultMessage()로 board 정보, next_player 추출
+            GameBoard updated_board;
+            char nextPlayer[64];
+            if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
+                memcpy(&game_board, &updated_board, sizeof(GameBoard)); // 로컬 보드 동기화
+                printf("[Client] Received move_ok. Board updated:\n");
+                printBoard(&game_board);
+                
+                // LED 매트릭스 업데이트 (과제 요구사항: 이동 완료 후 즉시 반영)
+                if (led_enabled) {
+                    printf("[LED] 이동 완료 - LED 패널을 업데이트합니다.\n");
+                    drawBoardOnLED(&game_board);
+                }
+                
+                if (strcmp(nextPlayer, my_username) == 0) {
+                    printf("[Client] It's your turn next.\n");
+                } else {
+                    printf("[Client] Waiting for opponent (%s).\n", nextPlayer);
+                }
+            }
+            break;
+        }
+        
+        case MSG_PASS: {
+            char nextPlayer[64];
+            // pass 메시지는 보드 정보가 없을 수 있음 → parseMoveResultMessage() 사용
+            GameBoard updated_board;
+            if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
+                memcpy(&game_board, &updated_board, sizeof(GameBoard));
+            }
+            printf("[Client] Opponent passed. Board now:\n");
+            printBoard(&game_board);
+            
+            // LED 매트릭스 업데이트 (과제 요구사항: 패스 후에도 보드 상태 갱신)
+            if (led_enabled) {
+                printf("[LED] 상대방 패스 - LED 패널을 업데이트합니다.\n");
+                drawBoardOnLED(&game_board);
+            }
+            break;
+        }
+        
+        case MSG_GAME_OVER: {
+            char players[2][64];
+            int scores[2];
+            if (parseGameOverMessage(json_obj, players, scores)) {
+                printf("[Client] Game over. Scores: %s=%d, %s=%d\n",
+                       players[0], scores[0], players[1], scores[1]);
+                if (strcmp(players[0], my_username) == 0 && scores[0] > scores[1]) {
+                    printf("[Client] You (%s) won!\n", players[0]);
+                } else if (strcmp(players[1], my_username) == 0 && scores[1] > scores[0]) {
+                    printf("[Client] You (%s) won!\n", players[1]);
+                } else if (scores[0] == scores[1]) {
+                    printf("[Client] Draw!\n");
+                } else {
+                    printf("[Client] You lost.\n");
+                }
+                
+                // 게임 종료 시 최종 보드 상태 LED에 표시 (과제 요구사항)
+                if (led_enabled) {
+                    printf("[LED] 게임 종료 - 최종 보드 상태를 LED 패널에 표시합니다.\n");
+                    drawBoardOnLED(&game_board);
+                    
+                    // 3초간 최종 결과 표시
+                    printf("[LED] 최종 결과를 3초간 표시합니다...\n");
+                    sleep(3);
+                    
+                    printf("[LED] LED 패널을 정리합니다.\n");
+                }
+                
+                client_state = CLIENT_GAME_OVER;
+                cleanup_and_exit(0);
+            }
+            break;
+        }
         
         default:
             fprintf(stderr, "알 수 없는 메시지 유형\n");
@@ -365,11 +398,19 @@ int main(int argc, char *argv[]) {
     // SIGINT 핸들러 등록
     signal(SIGINT, sigint_handler);
 
-    // LED 매트릭스 초기화 (필요 시)
+    // LED 매트릭스 초기화 (과제 요구사항: 64x64 LED 패널)
     if (led_enabled) {
+        printf("[LED] === 64x64 LED Matrix 초기화 (과제 요구사항) ===\n");
         if (ledMatrixInit() != 0) {
             fprintf(stderr, "LED 매트릭스 초기화 실패\n");
             led_enabled = 0;
+        } else {
+            printf("[LED] LED Matrix 초기화 완료!\n");
+            printf("[LED] 과제 규격: 64x64 픽셀 패널, 8x8 게임 그리드\n");
+            printf("[LED] 색상 매핑: R=빨강(255,0,0), B=파랑(0,0,255)\n");
+            printf("[LED]           .=회색(17,17,17), #=노랑(255,255,0)\n");
+            printf("[LED] 그리드: 1픽셀 회색 라인, 6x6 픽셀 게임 말\n");
+            printf("[LED] ============================================\n");
         }
     }
 

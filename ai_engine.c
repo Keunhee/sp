@@ -7,7 +7,7 @@
 
 #if defined(__aarch64__)
 // ------------------------------
-// AArch64(ARMv8) NEON 최적화 버전
+// arm64 니깐 나머지는 알빠노 ㅋㅋ
 // ------------------------------
 bool isCorner(int r, int c) {
     bool result;
@@ -75,16 +75,16 @@ int evaluateBoard(const GameBoard *board, char player) {
 
 #elif defined(__x86_64__)
 // ------------------------------
-// x86_64 환경: 순수 C(또는 필요 시 SSE/AVX) 버전
+// x86_64 환경 눈물을 머금고 ㅠㅠ
 // ------------------------------
 #include <stdint.h>
 
-// 코너 판별 (이미 AArch64 이외 환경에서도 정의되어 있음)
+
 bool isCorner(int r, int c) {
     return (r == 0 || r == BOARD_SIZE - 1) && (c == 0 || c == BOARD_SIZE - 1);
 }
 
-// evaluateBoard_fallback: 순수 C 로직
+
 int evaluateBoard(const GameBoard *board, char player) {
     int player_score = 0;
     int opponent_score = 0;

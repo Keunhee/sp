@@ -81,32 +81,42 @@ void send_register_message() {
 
 // 이동 메시지 전송
 void send_move_message(Move *move) {
-    if ((move->sourceRow || move->sourceCol || move->targetRow || move->targetCol)==0 )goto send0;
-    
-       move->sourceRow + 1, move->sourceCol + 1,move->targetRow + 1, move->targetCol + 1;
-    JsonValue *json_obj = createMoveMessage(my_username, move);
-    char *json_str = json_stringify(json_obj);
+    if (move->sourceRow == 0 && move->sourceCol == 0 && move->targetRow == 0 && move->targetCol == 0) {
+        // Pass move (0,0,0,0) - send as is
+        JsonValue *json_obj = createMoveMessage(my_username, move);
+        char *json_str = json_stringify(json_obj);
 
-    send(client_socket, json_str, strlen(json_str), 0);
-    send(client_socket, "\n", 1, 0);
+        send(client_socket, json_str, strlen(json_str), 0);
+        send(client_socket, "\n", 1, 0);
 
-    free(json_str);
-    json_free(json_obj);
+        free(json_str);
+        json_free(json_obj);
+        printf("[Client] move JSON sent for (0,0)->(0,0)\n");
+        goto end;
+    } else {
+        // Convert to 1-based for sending
+        Move converted = *move;
+        converted.sourceRow += 1;
+        converted.sourceCol += 1;
+        converted.targetRow += 1;
+        converted.targetCol += 1;
+        JsonValue *json_obj = createMoveMessage(my_username, &converted);
+        char *json_str = json_stringify(json_obj);
 
-    // 0-based → 1-based로 콘솔 로그
-    printf("[Client] move JSON sent for (%d,%d)->(%d,%d)\n",
-           move->sourceRow , move->sourceCol ,
-           move->targetRow , move->targetCol );
-    send0:
-       JsonValue *json_obj = createMoveMessage(my_username, move);
-    char *json_str = json_stringify(json_obj);
+        send(client_socket, json_str, strlen(json_str), 0);
+        send(client_socket, "\n", 1, 0);
 
-    send(client_socket, json_str, strlen(json_str), 0);
-    send(client_socket, "\n", 1, 0);
+        free(json_str);
+        json_free(json_obj);
 
-    free(json_str);
-    json_free(json_obj);
-;
+        // 0-based → 1-based로 콘솔 로그
+        printf("[Client] move JSON sent for (%d,%d)->(%d,%d)\n",
+               move->sourceRow, move->sourceCol,
+               move->targetRow, move->targetCol);
+        goto end;
+    }
+end:
+    return;
 }
 
 /**

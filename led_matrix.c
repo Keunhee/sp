@@ -5,6 +5,17 @@
 #include <string.h>
 #include <unistd.h>
 #include "led-matrix-c.h"
+// LED 색상 정의
+const LEDColor COLOR_RED      = {255, 0, 0};     // R
+const LEDColor COLOR_BLUE     = {0, 0, 255};     // B
+const LEDColor COLOR_EMPTY    = {17, 17, 17};    // .
+const LEDColor COLOR_OBSTACLE = {255, 255, 0};   // #
+const LEDColor COLOR_GRID     = {51, 51, 51};    // 격자
+const LEDColor COLOR_BLACK    = {0, 0, 0};       // 배경
+
+// 호환성용 색상
+const LEDColor COLOR_WHITE    = {51, 51, 51};    // 그리드와 동일
+const LEDColor COLOR_GREEN    = {17, 17, 17};    // 빈 공간과 동일
 
 // 매트릭스 객체
 static struct RGBLedMatrix *matrix = NULL;

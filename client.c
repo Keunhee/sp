@@ -362,25 +362,28 @@ int main(int argc, char *argv[]) {
     int port = 8888;
 
     // 명령줄 인수 파싱
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-ip") == 0 && i + 1 < argc) {
-            strncpy(ip_address, argv[i + 1], sizeof(ip_address) - 1);
-            ip_address[sizeof(ip_address) - 1] = '\0';
-            i++;
-        } else if (strcmp(argv[i], "-port") == 0 && i + 1 < argc) {
-            port = atoi(argv[i + 1]);
-            i++;
-        } else if (strcmp(argv[i], "-username") == 0 && i + 1 < argc) {
-            strncpy(my_username, argv[i + 1], sizeof(my_username) - 1);
-            my_username[sizeof(my_username) - 1] = '\0';
-            i++;
-        } else if (strcmp(argv[i], "-led") == 0) {
-            led_enabled = 1;
-        } else {
-            printf("사용법: %s -ip <IP주소> -port <포트> -username <사용자명> [-led]\n", argv[0]);
-            return 1;
-        }
+for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-ip") == 0 && i + 1 < argc) {
+        strncpy(ip_address, argv[i + 1], sizeof(ip_address) - 1);
+        ip_address[sizeof(ip_address) - 1] = '\0';
+        i++;
+    } else if (strcmp(argv[i], "-port") == 0 && i + 1 < argc) {
+        port = atoi(argv[i + 1]);
+        i++;
+    } else if (strcmp(argv[i], "-username") == 0 && i + 1 < argc) {
+        strncpy(my_username, argv[i + 1], sizeof(my_username) - 1);
+        my_username[sizeof(my_username) - 1] = '\0';
+        i++;
+    } else if (strcmp(argv[i], "-led") == 0) {
+        led_enabled = 1;
+    } else if (strncmp(argv[i], "--led-", 6) == 0) {
+        // hzeller 라이브러리용 옵션: 무시하고 그대로 전달
+        continue;
+    } else {
+        printf("사용법: %s -ip <IP주소> -port <포트> -username <사용자명> [-led] [--led-* 옵션들]\n", argv[0]);
+        return 1;
     }
+}
 
     // 사용자 이름 확인
     if (strlen(my_username) == 0) {

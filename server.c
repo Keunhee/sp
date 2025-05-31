@@ -54,7 +54,39 @@ void broadcast_game_over();
 void log_game_state(const char *action, int player_idx, Move *move);
 int set_socket_nonblocking(int socket_fd);
 void cleanup_and_exit(int signal);
+static char recv_buffer[MAX_CLIENTS][BUFFER_SIZE];
+static size_t recv_len[MAX_CLIENTS] = {0};
 
+// JSON 메시지 수신 및 분할 후 핸들러로 넘기는 함수
+void read_and_dispatch_json_messages(int client_idx, int sockfd) {
+    char *p;
+    ssize_t r = recv(sockfd,
+                     recv_buffer[client_idx] + recv_len[client_idx],
+                     BUFFER_SIZE - recv_len[client_idx] - 1,
+                     0);
+    if (r <= 0) {
+        if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            perror("recv");
+        }
+        handle_client_disconnect(sockfd);
+        return;
+    }
+
+    recv_len[client_idx] += r;
+    recv_buffer[client_idx][recv_len[client_idx]] = '\0';
+
+    // '\n' 기준으로 메시지를 분리
+    while ((p = strchr(recv_buffer[client_idx], '\n')) != NULL) {
+        *p = '\0';
+        if (strlen(recv_buffer[client_idx]) > 0) {
+            handle_client_message(client_idx, recv_buffer[client_idx]);
+        }
+        // 처리된 메시지를 버퍼에서 제거
+        size_t remain = recv_len[client_idx] - (p - recv_buffer[client_idx] + 1);
+        memmove(recv_buffer[client_idx], p + 1, remain);
+        recv_len[client_idx] = remain;
+        recv_buffer[client_idx][recv_len[client_idx]] = '\0';
+    }}
 // 시그널 핸들러
 void cleanup_and_exit(int signal __attribute__((unused))) {
     printf("\n서버 종료 중...\n");
@@ -674,40 +706,40 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
         }
         
         // 클라이언트 메시지 확인
-        for (int i = 1; i <= MAX_CLIENTS && i < nfds; i++) {
-            if (fds[i].fd != -1 && (fds[i].revents & POLLIN)) {
-                // 클라이언트로부터 데이터 읽기
-                int valread = read(fds[i].fd, buffer, BUFFER_SIZE - 1);
-                
-                if (valread > 0) {
-                    buffer[valread] = '\0';
-                    
-                    // 해당 클라이언트 인덱스 찾기
-                    int client_idx = -1;
-                    for (int j = 0; j < MAX_CLIENTS; j++) {
-                        if (clients[j].socket == fds[i].fd) {
-                            client_idx = j;
-                            break;
-                        }
-                    }
-                    
-                    if (client_idx != -1) {
-                        read_and_dispatch_json_messages(client_idx, fds[i].fd);
-                    }
-                } else {
-                    // 연결 종료 또는 오류
-                    handle_client_disconnect(fds[i].fd);
-                    
-                    // poll 배열에서 제거
-                    fds[i].fd = -1;
-                    
-                    // nfds 재계산
-                    while (nfds > 1 && fds[nfds-1].fd == -1) {
-                        nfds--;
-                    }
+       for (int i = 1; i <= MAX_CLIENTS && i < nfds; i++) {
+    if (fds[i].fd != -1 && (fds[i].revents & POLLIN)) {
+        // 클라이언트로부터 데이터 읽기
+        int valread = read(fds[i].fd, buffer, BUFFER_SIZE - 1);
+
+        if (valread > 0) {
+            buffer[valread] = '\0';
+
+            // 해당 클라이언트 인덱스 찾기
+            int client_idx = -1;
+            for (int j = 0; j < MAX_CLIENTS; j++) {
+                if (clients[j].socket == fds[i].fd) {
+                    client_idx = j;
+                    break;
                 }
             }
+
+            if (client_idx != -1) {
+                read_and_dispatch_json_messages(client_idx, fds[i].fd);
+            }
+        } else {
+            // 연결 종료 또는 오류
+            handle_client_disconnect(fds[i].fd);
+
+            // poll 배열에서 제거
+            fds[i].fd = -1;
+
+            // nfds 재계산
+            while (nfds > 1 && fds[nfds-1].fd == -1) {
+                nfds--;
+            }
         }
+    }
+}
     }
     
     return 0;

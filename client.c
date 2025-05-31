@@ -68,32 +68,19 @@ void sigint_handler(int sig __attribute__((unused))) {
 void send_register_message() {
     JsonValue *json_obj = createRegisterMessage(my_username);
     char *json_str = json_stringify(json_obj);
-    
+
     send(client_socket, json_str, strlen(json_str), 0);
-    
+    send(client_socket, "\n", 1, 0);
+
     free(json_str);
     json_free(json_obj);
-    
-    printf("서버에 등록 요청을 보냈습니다.\n");
+
+    printf("[Client] Sent register: %s\n", my_username);
     client_state = CLIENT_REGISTERING;
 }
 
 // 이동 메시지 전송
 void send_move_message(Move *move) {
-    // **화면에 출력할 땐 1-base로 보여주기**
-    if (move->sourceRow == 0 && move->sourceCol == 0 &&
-        move->targetRow == 0 && move->targetCol == 0) {
-        
-        printf("이동 (패스) 를 서버에 전송합니다.\n");
-    } else {
-        printf("이동 (%d,%d) -> (%d,%d) 를 서버에 전송합니다.\n",
-               move->sourceRow + 1,   // 화면 출력은 1-base
-               move->sourceCol + 1,
-               move->targetRow + 1,
-               move->targetCol + 1);
-    }
-
-   
     JsonValue *json_obj = createMoveMessage(my_username, move);
     char *json_str = json_stringify(json_obj);
 
@@ -102,8 +89,12 @@ void send_move_message(Move *move) {
 
     free(json_str);
     json_free(json_obj);
-}
 
+    // 0-based → 1-based로 콘솔 로그
+    printf("[Client] move JSON sent for (%d,%d)->(%d,%d)\n",
+           move->sourceRow + 1, move->sourceCol + 1,
+           move->targetRow + 1, move->targetCol + 1);
+}
 
 /**
  * 강력한 AI 엔진을 사용한 최적 이동 생성 함수 (pthread 제거됨)
@@ -158,15 +149,14 @@ void handle_server_message(char *buffer) {
         }
         
         case MSG_REGISTER_NACK: {
-            JsonValue *reason_json = json_object_get(json_obj, "reason");
-            if (reason_json && json_is_string(reason_json)) {
-                printf("등록 실패: %s\n", json_string_value(reason_json));
-            } else {
-                printf("등록 실패: 알 수 없는 이유\n");
-            }
-            cleanup_and_exit(1);
-            break;
-        }
+    JsonValue *reason_json = json_object_get(json_obj, "reason");
+    const char *reason = (reason_json && json_is_string(reason_json))
+                         ? json_string_value(reason_json)
+                         : "unknown";
+    printf("[Client] register_nack received. Reason: %s\n", reason);
+    cleanup_and_exit(1);
+    break;
+}
         
         case MSG_GAME_START: {
             char players[2][64];
@@ -206,77 +196,101 @@ void handle_server_message(char *buffer) {
             }
             break;
         }
-        
-        case MSG_YOUR_TURN: {
-            double timeout;
-            
-            if (parseYourTurnMessage(json_obj, &game_board, &timeout)) {
-                printf("당신의 차례입니다. 제한 시간: %.1f초\n", timeout);
-                
-                // 보드 출력
-                printf("현재 보드 상태:\n");
-                printBoard(&game_board);
-                
-                // LED 매트릭스에 보드 표시
-                if (led_enabled) {
-                    drawBoardOnLED(&game_board);
-                }
-                
-                client_state = CLIENT_YOUR_TURN;
-                
-                // 자동 이동 생성 및 전송
-                Move move = generate_smart_move();
-                
-                // 이동 전 유효성 로컬 검증
-                int valid = isValidMove(&game_board, &move);
-                
-                if (valid || (move.sourceRow == 0 && move.sourceCol == 0 && 
-                             move.targetRow == 0 && move.targetCol == 0)) {
-                    send_move_message(&move);
-                    client_state = CLIENT_WAITING;
-                } else {
-                    printf("로컬 검증 실패. 패스합니다.\n");
-                    Move pass_move = {my_color, 0, 0, 0, 0};
-                    send_move_message(&pass_move);
-                    client_state = CLIENT_WAITING;
-                }
-            }
-            break;
+        case MSG_INVALID_MOVE: {
+    printf("[Client] Received invalid_move. Retrying...\n");
+ 
+    Move retry_move = generate_smart_move();
+    printf("[Client] Retrying Move: (%d,%d)->(%d,%d)\n",
+           retry_move.sourceRow + 1, retry_move.sourceCol + 1,
+           retry_move.targetRow + 1, retry_move.targetCol + 1);
+    send_move_message(&retry_move);
+    break;
+}
+       case MSG_YOUR_TURN: {
+    double timeout;
+
+    if (parseYourTurnMessage(json_obj, &game_board, &timeout)) {
+        printf("[Client] Your turn. Timeout: %.1f sec\n", timeout);
+        printf("[Client] Current board:\n");
+        printBoard(&game_board);
+
+        if (led_enabled) {
+            drawBoardOnLED(&game_board);
         }
-        
+
+        client_state = CLIENT_YOUR_TURN;
+
+        // --- 1-base 좌표로 로그 찍으면서 Move 생성 ---
+        Move move = generate_smart_move();
+        int sR = move.sourceRow + 1;
+        int sC = move.sourceCol + 1;
+        int tR = move.targetRow + 1;
+        int tC = move.targetCol + 1;
+
+        if (sR == 1 && sC == 1 && tR == 1 && tC == 1) {
+            // (0,0,0,0)을 1-based로 치환할 수 없으므로
+            // 실제 패스일 땐 로그만 “0,0,0,0”로 찍고 전송
+            printf("[Client] No valid moves → passing (0,0,0,0)\n");
+        } else {
+            printf("[Client] Sending Move: (%d,%d)->(%d,%d)\n", sR, sC, tR, tC);
+        }
+
+        printf("[Client] Board after move generation (예상):\n");
+        printBoard(&game_board);
+
+        send_move_message(&move);  // 내부에서 “JSON + '\n'” 전송됨
+        client_state = CLIENT_WAITING;
+    }
+    break;
+}
+        case MSG_MOVE_OK: {
+    // parseMoveResultMessage()로 board 정보, next_player 추출
+    GameBoard updated_board;
+    char nextPlayer[64];
+    if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
+        memcpy(&game_board, &updated_board, sizeof(GameBoard)); // 로컬 보드 동기화
+        printf("[Client] Received move_ok. Board updated:\n");
+        printBoard(&game_board);
+        if (strcmp(nextPlayer, my_username) == 0) {
+            printf("[Client] It's your turn next.\n");
+        } else {
+            printf("[Client] Waiting for opponent (%s).\n", nextPlayer);
+        }
+    }
+    break;
+}
         case MSG_PASS: {
-            printf("패스 메시지 수신\n");
-            // 패스 메시지는 단순히 로그만 출력
-            break;
-        }
+    char nextPlayer[64];
+    // pass 메시지는 보드 정보가 없을 수 있음 → parseMoveResultMessage() 사용
+    GameBoard updated_board;
+    if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
+        memcpy(&game_board, &updated_board, sizeof(GameBoard));
+    }
+    printf("[Client] Opponent passed. Board now:\n");
+    printBoard(&game_board);
+    break;
+}
         
-        case MSG_GAME_OVER: {
-            char players[2][64];
-            int scores[2];
-            
-            if (parseGameOverMessage(json_obj, players, scores)) {
-                if (scores[0] > scores[1]) {
-                    printf("게임 종료! 승자: %s\n", players[0]);
-                    if (strcmp(players[0], my_username) == 0) {
-                        printf("축하합니다! 당신이 승리했습니다!\n");
-                    } else {
-                        printf("아쉽습니다. 다음 기회에 도전하세요.\n");
-                    }
-                } else if (scores[1] > scores[0]) {
-                    printf("게임 종료! 승자: %s\n", players[1]);
-                    if (strcmp(players[1], my_username) == 0) {
-                        printf("축하합니다! 당신이 승리했습니다!\n");
-                    } else {
-                        printf("아쉽습니다. 다음 기회에 도전하세요.\n");
-                    }
-                } else {
-                    printf("게임 종료! 무승부입니다.\n");
-                }
-                
-                client_state = CLIENT_GAME_OVER;
-            }
-            break;
+case MSG_GAME_OVER: {
+    char players[2][64];
+    int scores[2];
+    if (parseGameOverMessage(json_obj, players, scores)) {
+        printf("[Client] Game over. Scores: %s=%d, %s=%d\n",
+               players[0], scores[0], players[1], scores[1]);
+        if (strcmp(players[0], my_username) == 0 && scores[0] > scores[1]) {
+            printf("[Client] You (%s) won!\n", players[0]);
+        } else if (strcmp(players[1], my_username) == 0 && scores[1] > scores[0]) {
+            printf("[Client] You (%s) won!\n", players[1]);
+        } else if (scores[0] == scores[1]) {
+            printf("[Client] Draw!\n");
+        } else {
+            printf("[Client] You lost.\n");
         }
+        client_state = CLIENT_GAME_OVER;
+        cleanup_and_exit(0);
+    }
+    break;
+}
         
         default:
             fprintf(stderr, "알 수 없는 메시지 유형\n");
@@ -290,7 +304,7 @@ void handle_server_message(char *buffer) {
 int main(int argc, char *argv[]) {
     char ip_address[32] = "127.0.0.1";
     int port = 8888;
-    
+
     // 명령줄 인수 파싱
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ip") == 0 && i + 1 < argc) {
@@ -311,7 +325,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
     }
-    
+
     // 사용자 이름 확인
     if (strlen(my_username) == 0) {
         printf("사용자 이름을 입력하세요: ");
@@ -319,92 +333,83 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "입력 오류\n");
             return 1;
         }
-        
-        // 개행 문자 제거
         size_t len = strlen(my_username);
         if (len > 0 && my_username[len - 1] == '\n') {
             my_username[len - 1] = '\0';
         }
     }
-    
-    // 시그널 핸들러 설정
+
+    // SIGINT 핸들러 등록
     signal(SIGINT, sigint_handler);
-    
-    // LED 매트릭스 초기화
+
+    // LED 매트릭스 초기화 (필요 시)
     if (led_enabled) {
         if (ledMatrixInit() != 0) {
             fprintf(stderr, "LED 매트릭스 초기화 실패\n");
             led_enabled = 0;
         }
     }
-    
-    // 소켓 생성
+
+    // 클라이언트 소켓 생성
     if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("소켓 생성 실패");
         cleanup_and_exit(1);
     }
-    
+
     // 서버 주소 설정
     struct sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(port);
-    
-    // IP 주소 변환
     if (inet_pton(AF_INET, ip_address, &serv_addr.sin_addr) <= 0) {
         perror("유효하지 않은 주소/주소가 지원되지 않음");
         cleanup_and_exit(1);
     }
-    
+
     // 서버에 연결
     if (connect(client_socket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("연결 실패");
         cleanup_and_exit(1);
     }
-    
     printf("서버에 연결되었습니다: %s:%d\n", ip_address, port);
-    
+
     // 등록 메시지 전송
     send_register_message();
-    
-    // 메인 루프 (pthread 대신 poll 사용)
+
+    // 메인 루프 (poll 사용)
     char buffer[BUFFER_SIZE];
     struct pollfd fds[1];
     fds[0].fd = client_socket;
     fds[0].events = POLLIN;
-    
+
     while (client_state != CLIENT_GAME_OVER) {
-        // poll로 소켓 상태 확인 (100ms 타임아웃)
         int poll_result = poll(fds, 1, 100);
-        
         if (poll_result > 0 && (fds[0].revents & POLLIN)) {
-            // 메시지 수신
             int bytes_received = recv(client_socket, buffer, BUFFER_SIZE - 1, 0);
-            
             if (bytes_received > 0) {
                 buffer[bytes_received] = '\0';
-                printf("서버로부터 메시지: %s\n", buffer);
-                handle_server_message(buffer);
+
+                // '\n' 단위로 분리하여 각 JSON 메시지를 처리
+                char *line = strtok(buffer, "\n");
+                while (line) {
+                    handle_server_message(line);
+                    line = strtok(NULL, "\n");
+                }
             } else if (bytes_received == 0) {
-                printf("서버 연결이 종료되었습니다.\n");
+                printf("[Client] 서버 연결이 종료되었습니다.\n");
                 break;
             } else {
-                perror("메시지 수신 오류");
+                perror("[Client] 메시지 수신 오류");
                 break;
             }
         } else if (poll_result < 0 && errno != EINTR) {
-            perror("poll 오류");
+            perror("[Client] poll 오류");
             break;
         }
-        
-        // 100ms 대기 (CPU 사용률 감소)
-        usleep(100000);
+        usleep(100000); // 100ms 대기
     }
-    
-    printf("게임이 종료되었습니다.\n");
-    
-    // 정리 및 종료
+
+    printf("[Client] 게임이 종료되었습니다.\n");
     cleanup_and_exit(0);
-    
     return 0;
 }

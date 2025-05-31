@@ -150,9 +150,7 @@ void handle_client_disconnect(int socket_fd) {
 }
 
 void check_timeout() {
-    if (server_state != SERVER_GAME_IN_PROGRESS) {
-        return;
-    }
+    if (server_state != SERVER_GAME_IN_PROGRESS) return;
 
     struct timeval current_time;
     gettimeofday(&current_time, NULL);
@@ -161,58 +159,43 @@ void check_timeout() {
                      (current_time.tv_usec - turn_start_time.tv_usec) / 1000000.0;
 
     if (elapsed > TIMEOUT_SEC) {
-        char player_color = clients[current_player_idx].color;
+        const char *tname = clients[current_player_idx].username;
+        printf("[Server] %s timed out (%.2f sec).\n", tname, elapsed);
 
-        if (hasValidMove(&game_board, player_color)) {
-            printf("합법적인 수가 남아 있으므로 invalid_move 메시지 전송\n");
-
-            JsonValue *invalid_msg = createInvalidMoveMessage(&game_board,
-                                                              clients[current_player_idx].username);
-            char *invalid_json = json_stringify(invalid_msg);
-
+        // 유효한 수가 남아 있으면 invalid_move
+        if (hasValidMove(&game_board, clients[current_player_idx].color)) {
+            printf("[Server] %s has valid moves → sending invalid_move due to timeout\n", tname);
+            JsonValue *inv = createInvalidMoveMessage(&game_board, tname);
+            char *inv_str = json_stringify(inv);
+            send(clients[current_player_idx].socket, inv_str, strlen(inv_str), 0);
+            send(clients[current_player_idx].socket, "\n", 1, 0);
+            free(inv_str); json_free(inv);
+        } else {
+            // 진짜 패스
+            printf("[Server] %s has no valid moves → auto-pass due to timeout\n", tname);
+            game_board.consecutivePasses++;
+            JsonValue *pass_msg = createPassMessage(clients[(current_player_idx + 1) % MAX_CLIENTS].username);
+            char *pass_str = json_stringify(pass_msg);
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (clients[i].socket != -1) {
-                    send(clients[i].socket, invalid_json, strlen(invalid_json), 0);
+                    send(clients[i].socket, pass_str, strlen(pass_str), 0);
                     send(clients[i].socket, "\n", 1, 0);
                 }
             }
-
-            free(invalid_json);
-            json_free(invalid_msg);
-
-            gettimeofday(&turn_start_time, NULL);
-            return;
+            free(pass_str); json_free(pass_msg);
+            printBoard(&game_board); printf("\n");
         }
 
-        printf("합법적인 수가 없어서 진짜 패스 처리 (move_ok로 간주)\n");
-
-        game_board.consecutivePasses++;
-
-        int next_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
-
-        JsonValue *move_ok_msg = createMoveOkMessage(&game_board,
-                                                     clients[next_player_idx].username);
-        char *move_ok_json = json_stringify(move_ok_msg);
-
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].socket != -1) {
-                send(clients[i].socket, move_ok_json, strlen(move_ok_json), 0);
-                send(clients[i].socket, "\n", 1, 0);
-            }
-        }
-
-        free(move_ok_json);
-        json_free(move_ok_msg);
-
+        // 게임 종료 여부
         if (game_board.consecutivePasses >= 2 || hasGameEnded(&game_board)) {
             broadcast_game_over();
         } else {
-            current_player_idx = next_player_idx;
+            // 다음 플레이어 턴
+            current_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
             send_your_turn(current_player_idx);
         }
     }
 }
-
 // 게임 상태 로그
 void log_game_state(const char *action, int player_idx, Move *move) {
     printf("[게임 로그] %s - 플레이어: %s", action, 
@@ -229,178 +212,209 @@ void log_game_state(const char *action, int player_idx, Move *move) {
            game_board.redCount, game_board.blueCount, game_board.emptyCount);
 }
 
-// 등록 메시지 처리
 void handle_register_message(int client_idx, JsonValue *json_obj) {
     JsonValue *username_json = json_object_get(json_obj, "username");
     if (!username_json || username_json->type != JSON_STRING) {
         fprintf(stderr, "유효하지 않은 등록 메시지\n");
         return;
     }
-    
     const char *username = json_string_value(username_json);
+
+    // --- ① 중복 등록 체크 ---
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (i != client_idx && clients[i].socket != -1) {
+            if (strcmp(clients[i].username, username) == 0) {
+                // 중복일 때 register_nack 전송 후 연결 종료
+                JsonValue *nack = createRegisterNackMessage("duplicate username");
+                char *nack_str = json_stringify(nack);
+                send(clients[client_idx].socket, nack_str, strlen(nack_str), 0);
+                send(clients[client_idx].socket, "\n", 1, 0);
+                free(nack_str);
+                json_free(nack);
+                close(clients[client_idx].socket);
+                clients[client_idx].socket = -1;
+                client_count--;   // 연결 카운트도 하나 줄여줌
+                printf("[Server] register_nack sent to %s (duplicate)\n", username);
+                return;
+            }
+        }
+    }
+
+    // --- ② 정상 등록 처리 ---
     strncpy(clients[client_idx].username, username, sizeof(clients[client_idx].username) - 1);
     clients[client_idx].username[sizeof(clients[client_idx].username) - 1] = '\0';
-    
-    // 색상 할당
+
+    // 색상 할당 (0번 클라이언트: RED, 1번 클라이언트: BLUE)
     clients[client_idx].color = (client_idx == 0) ? RED_PLAYER : BLUE_PLAYER;
-    
-    printf("플레이어 등록: %s (색상: %c)\n", username, clients[client_idx].color);
-    
-    // 등록 확인 메시지 전송
+    printf("[Server] Player registered: %s (color: %c)\n", username, clients[client_idx].color);
+
+    // ACK 메시지 전송
     JsonValue *ack_msg = createRegisterAckMessage();
-    char *json_str = json_stringify(ack_msg);
-    send(clients[client_idx].socket, json_str, strlen(json_str), 0);
+    char *ack_str = json_stringify(ack_msg);
+    send(clients[client_idx].socket, ack_str, strlen(ack_str), 0);
     send(clients[client_idx].socket, "\n", 1, 0);
-    free(json_str);
+    free(ack_str);
     json_free(ack_msg);
-    
-    // 두 플레이어가 모두 등록되면 게임 시작
-    if (client_count == MAX_CLIENTS && 
+
+    // --- ③ 두 플레이어가 모두 등록되면 게임 시작 ---
+    if (client_count == MAX_CLIENTS &&
         strlen(clients[0].username) > 0 && strlen(clients[1].username) > 0) {
         broadcast_game_start();
     }
 }
 
-// 이동 메시지 처리
 void handle_move_message(int client_idx, JsonValue *json_obj) {
     if (server_state != SERVER_GAME_IN_PROGRESS) {
-        printf("게임이 진행 중이 아님\n");
+        printf("[Server] Received move but game not in progress.\n");
         return;
     }
-    
+
+    // 현재 차례 아닌 플레이어가 보냈으면 invalid_move
     if (client_idx != current_player_idx) {
-        printf("현재 턴이 아닌 플레이어의 이동 시도\n");
+        printf("[Server] %s tried to move out of turn.\n", clients[client_idx].username);
+        JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
+        char *inv_str = json_stringify(inv);
+        send(clients[client_idx].socket, inv_str, strlen(inv_str), 0);
+        send(clients[client_idx].socket, "\n", 1, 0);
+        free(inv_str); json_free(inv);
         return;
     }
-    
-    char *username;
+
+    char *username = NULL;
     Move move;
     if (!parseMoveMessage(json_obj, &username, &move)) {
-        printf("이동 메시지 파싱 실패\n");
+        printf("[Server] Failed to parse move JSON from %s.\n", clients[client_idx].username);
         return;
     }
-    
-    move.player = clients[client_idx].color;
-    
-    printf("이동 시도: 플레이어 %s (%d,%d)->(%d,%d)\n", 
+
+    // 0-based → 1-based 로 로그에 출력
+    printf("[Server] Move received from %s: (%d,%d)->(%d,%d)\n",
            clients[client_idx].username,
-           move.sourceRow, move.sourceCol, move.targetRow, move.targetCol);
-    
-    // 패스 확인 (모든 좌표가 0인 경우)
-    if (move.sourceRow == 0 && move.sourceCol == 0 && 
+           move.sourceRow + 1, move.sourceCol + 1,
+           move.targetRow + 1, move.targetCol + 1);
+
+    // --- 패스(0,0,0,0) 검사 ---
+    if (move.sourceRow == 0 && move.sourceCol == 0 &&
         move.targetRow == 0 && move.targetCol == 0) {
-        
-        printf("패스 시도 감지\n");
-        
-        // 실제로 유효한 이동이 있는지 확인
+        // 유효한 이동이 하나라도 남아 있으면 패스 불가 → invalid_move
         if (hasValidMove(&game_board, move.player)) {
-            // 유효한 이동이 있으면 패스 불가
-            printf("유효한 이동이 있어 패스 거부\n");
-            
-            // 에러 메시지 전송 (여기서는 단순히 다시 턴 요청)
-            send_your_turn(client_idx);
-            return;
-        } else {
-            // 유효한 이동이 없으면 패스
-            printf("유효한 이동이 없어 패스 허용\n");
-            
-            // 다음 플레이어로 전환
-            int next_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
-            
-            // 패스 메시지 전송
-            JsonValue *pass_msg = createPassMessage(clients[next_player_idx].username);
-            char *json_str = json_stringify(pass_msg);
-            
-            // 모든 클라이언트에게 패스 메시지 전송
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i].socket != -1) {
-                    send(clients[i].socket, json_str, strlen(json_str), 0);
-                    send(clients[i].socket, "\n", 1, 0);
-                }
-            }
-            
-            free(json_str);
-            json_free(pass_msg);
-            
-            printf("플레이어 %s가 패스했습니다.\n", clients[client_idx].username);
-            
-            // 연속 패스 증가
-            game_board.consecutivePasses++;
-            
-            // 게임 종료 확인
-            if (game_board.consecutivePasses >= 2 || hasGameEnded(&game_board)) {
-                broadcast_game_over();
-            } else {
-                current_player_idx = next_player_idx;
-                send_your_turn(current_player_idx);
-            }
-            
-            log_game_state("패스", client_idx, &move);
+            printf("[Server] %s sent pass but valid moves remain → invalid_move\n",
+                   clients[client_idx].username);
+            JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
+            char *inv_str = json_stringify(inv);
+            send(clients[client_idx].socket, inv_str, strlen(inv_str), 0);
+            send(clients[client_idx].socket, "\n", 1, 0);
+            free(inv_str); json_free(inv);
+            free(username);
             return;
         }
-    }
-    
-    // 일반 이동 유효성 검사
-    if (!isValidMove(&game_board, &move)) {
-        printf("유효하지 않은 이동\n");
-        
-        // 다시 턴 요청
-        send_your_turn(client_idx);
+        // 진짜 패스
+        printf("[Server] %s passes (no moves left).\n", clients[client_idx].username);
+        game_board.consecutivePasses++;
+
+        // 패스 메시지 모두 전송
+        JsonValue *pass_msg = createPassMessage(clients[current_player_idx].username);
+        char *pass_str = json_stringify(pass_msg);
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].socket != -1) {
+                send(clients[i].socket, pass_str, strlen(pass_str), 0);
+                send(clients[i].socket, "\n", 1, 0);
+            }
+        }
+        free(pass_str); json_free(pass_msg);
+
+        printBoard(&game_board);
+        printf("\n");
+
+        // 연속 패스 2회면 게임 종료, 아니면 다음 턴
+        if (game_board.consecutivePasses >= 2 || hasGameEnded(&game_board)) {
+            broadcast_game_over();
+        } else {
+            current_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
+            send_your_turn(current_player_idx);
+        }
+
+        free(username);
         return;
     }
-    
-    // 이동 적용
-    applyMove(&game_board, &move);
-    
-    // 연속 패스 초기화
-    game_board.consecutivePasses = 0;
-    
-    log_game_state("이동", client_idx, &move);
-    
-    // 모든 클라이언트에게 보드 상태 전송 (단순화)
-    printf("보드 업데이트 전송\n");
+
+    // --- 일반 이동 유효성 검사 ---
+    if (!isValidMove(&game_board, &move)) {
+        printf("[Server] Invalid move by %s: (%d,%d)->(%d,%d)\n",
+               clients[client_idx].username,
+               move.sourceRow + 1, move.sourceCol + 1,
+               move.targetRow + 1, move.targetCol + 1);
+
+        // invalid_move 응답 (board + next_player 포함)
+        JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
+        char *inv_str = json_stringify(inv);
+        send(clients[client_idx].socket, inv_str, strlen(inv_str), 0);
+        send(clients[client_idx].socket, "\n", 1, 0);
+        free(inv_str); json_free(inv);
+
+        free(username);
+        return;
+    }
+
+    // --- 합법적 이동 처리 ---
+    applyMove(&game_board, &move);              // 보드에 반영
+    game_board.consecutivePasses = 0;           // 패스 카운트 리셋
+    printf("[Server] Move applied. New board:\n");
     printBoard(&game_board);
-    
-    // 게임 종료 확인
+    printf("\n");
+
+    // move_ok 메시지 생성 (board + next_player)
+    int next_idx = (current_player_idx + 1) % MAX_CLIENTS;
+    JsonValue *ok = createMoveOkMessage(&game_board, clients[next_idx].username);
+    char *ok_str = json_stringify(ok);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].socket != -1) {
+            send(clients[i].socket, ok_str, strlen(ok_str), 0);
+            send(clients[i].socket, "\n", 1, 0);
+        }
+    }
+    free(ok_str); json_free(ok);
+
+    // --- 게임 종료 검사 ---
     if (hasGameEnded(&game_board)) {
         broadcast_game_over();
     } else {
-        // 다음 플레이어 턴
-        current_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
+        // 다음 턴
+        current_player_idx = next_idx;
         send_your_turn(current_player_idx);
     }
-    
-    // username 메모리 해제
-    if (username) {
-        free(username);
-    }
+
+    free(username);
 }
 
 // 게임 시작 브로드캐스트
 void broadcast_game_start() {
     server_state = SERVER_GAME_IN_PROGRESS;
-    
+
+    // --- 보드 초기화 (한 번만) ---
+    initializeBoard(&game_board);
+
     const char *usernames[MAX_CLIENTS];
     for (int i = 0; i < MAX_CLIENTS; i++) {
         usernames[i] = clients[i].username;
     }
-    
+
+    // game_start 메시지 생성
     JsonValue *start_msg = createGameStartMessage(usernames, clients[0].username);
-    char *json_str = json_stringify(start_msg);
-    
+    char *start_str = json_stringify(start_msg);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket != -1) {
-            send(clients[i].socket, json_str, strlen(json_str), 0);
+            send(clients[i].socket, start_str, strlen(start_str), 0);
             send(clients[i].socket, "\n", 1, 0);
         }
     }
-    
-    free(json_str);
+    free(start_str);
     json_free(start_msg);
-    
-    printf("게임 시작: %s vs %s\n", clients[0].username, clients[1].username);
-    
-    // 첫 번째 플레이어에게 턴 시작 알림
+
+    printf("[Server] game_start sent: players=[%s,%s], first_player=%s\n",
+           clients[0].username, clients[1].username, clients[0].username);
+
+    // 첫 번째 플레이어 턴 알림
     current_player_idx = 0;
     send_your_turn(current_player_idx);
 }
@@ -410,59 +424,47 @@ void send_your_turn(int client_idx) {
     if (client_idx < 0 || client_idx >= MAX_CLIENTS || clients[client_idx].socket == -1) {
         return;
     }
-    
-    JsonValue *turn_msg = createYourTurnMessage(&game_board, TIMEOUT_SEC);
-    char *json_str = json_stringify(turn_msg);
-    
-    send(clients[client_idx].socket, json_str, strlen(json_str), 0);
-    send(clients[client_idx].socket, "\n", 1, 0);
-    free(json_str);
-    json_free(turn_msg);
-    
-    // 턴 시작 시간 기록
-    gettimeofday(&turn_start_time, NULL);
-    
-    printf("플레이어 %s의 턴 시작\n", clients[client_idx].username);
-}
 
-// 게임 종료 브로드캐스트
+    JsonValue *turn_msg = createYourTurnMessage(&game_board, TIMEOUT_SEC);
+    char *turn_str = json_stringify(turn_msg);
+    send(clients[client_idx].socket, turn_str, strlen(turn_str), 0);
+    send(clients[client_idx].socket, "\n", 1, 0);
+    free(turn_str);
+    json_free(turn_msg);
+
+    gettimeofday(&turn_start_time, NULL);
+    printf("[Server] your_turn sent to %s (timeout=%.1f)\n",
+           clients[client_idx].username, TIMEOUT_SEC);
+}
 void broadcast_game_over() {
     server_state = SERVER_GAME_OVER;
-    
-    // 승자 결정
+
     const char *players[2] = {clients[0].username, clients[1].username};
     int scores[2] = {game_board.redCount, game_board.blueCount};
-    
+
     JsonValue *game_over_msg = createGameOverMessage(players, scores);
     char *json_str = json_stringify(game_over_msg);
-    
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket != -1) {
             send(clients[i].socket, json_str, strlen(json_str), 0);
             send(clients[i].socket, "\n", 1, 0);
         }
     }
-    
-    free(json_str);
-    json_free(game_over_msg);
-    
+    free(json_str); json_free(game_over_msg);
+
     if (game_board.redCount > game_board.blueCount) {
-        printf("게임 종료: %s 승리! (R=%d, B=%d)\n", 
+        printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
                clients[0].username, game_board.redCount, game_board.blueCount);
     } else if (game_board.blueCount > game_board.redCount) {
-        printf("게임 종료: %s 승리! (R=%d, B=%d)\n", 
+        printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
                clients[1].username, game_board.redCount, game_board.blueCount);
     } else {
-        printf("게임 종료: 무승부! (R=%d, B=%d)\n", 
+        printf("[Server] Game over: Draw! (R=%d, B=%d)\n",
                game_board.redCount, game_board.blueCount);
     }
-    
-    log_game_state("게임종료", -1, NULL);
-    
-    // 게임 상태 초기화
-    server_state = SERVER_WAITING_PLAYERS;
-    initializeBoard(&game_board);
-    current_player_idx = 0;
+
+    // 바로 종료
+    exit(0);
 }
 
 // 클라이언트 메시지 처리

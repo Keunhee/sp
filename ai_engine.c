@@ -577,3 +577,4 @@ Move generateWinningMove(const GameBoard *board, char player) {
     printf("=== AI 엔진 최적해 선택 ===\n");
     return move;
 }
+

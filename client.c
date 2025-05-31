@@ -113,8 +113,8 @@ Move generate_smart_move() {
         printf("AI 판단: 유효한 이동이 없어 패스합니다.\n");
     } else {
         printf("AI 선택: (%d,%d) -> (%d,%d)\n", 
-               best_move.sourceRow, best_move.sourceCol, 
-               best_move.targetRow, best_move.targetCol);
+               best_move.sourceRow+1, best_move.sourceCol+1, 
+               best_move.targetRow+1, best_move.targetCol+1);
     }
     printf("=== AI 엔진 종료 ===\n\n");
     

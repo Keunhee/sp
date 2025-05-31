@@ -7,7 +7,7 @@
 #include <stdbool.h>
 // AI 설정 상수
 #define MAX_DEPTH 8
-#define TIME_LIMIT 4.5  // 4.5초 제한 (서버 5초 제한보다 여유)
+#define TIME_LIMIT 2.5  // 4.5초 제한 (서버 5초 제한보다 여유)
 #define TRANSPOSITION_TABLE_SIZE 1000003  // 소수로 설정
 
 // 무한대 값 정의

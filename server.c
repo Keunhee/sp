@@ -148,7 +148,42 @@ void handle_client_disconnect(int socket_fd) {
         current_player_idx = 0;
     }
 }
+void read_and_dispatch_json_messages(int client_idx, int sockfd) {
+    static char buf[MAX_CLIENTS][BUFFER_SIZE];
+    static size_t len[MAX_CLIENTS] = {0};
+    char *p;
 
+    // recv()로 데이터 수신
+    ssize_t r = recv(sockfd, buf[client_idx] + len[client_idx],
+                     BUFFER_SIZE - len[client_idx] - 1, 0);
+
+    if (r <= 0) {
+        if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            perror("recv");
+        }
+        // 연결 종료 또는 에러
+        handle_client_disconnect(sockfd);
+        return;
+    }
+
+    len[client_idx] += r;
+    buf[client_idx][len[client_idx]] = '\0';
+
+    // \n 기준으로 JSON 메시지를 분할 처리
+    while ((p = strchr(buf[client_idx], '\n')) != NULL) {
+        *p = '\0';
+
+        if (strlen(buf[client_idx]) > 0) {
+            handle_client_message(client_idx, buf[client_idx]);  // JSON 파싱 및 처리
+        }
+
+        // 처리된 메시지를 버퍼에서 제거
+        size_t remain = len[client_idx] - (p - buf[client_idx] + 1);
+        memmove(buf[client_idx], p + 1, remain);
+        len[client_idx] = remain;
+        buf[client_idx][len[client_idx]] = '\0';
+    }
+}
 void check_timeout() {
     if (server_state != SERVER_GAME_IN_PROGRESS) return;
 
@@ -294,8 +329,8 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
     // 0-based → 1-based 로 로그에 출력
     printf("[Server] Move received from %s: (%d,%d)->(%d,%d)\n",
            clients[client_idx].username,
-           move.sourceRow + 1, move.sourceCol + 1,
-           move.targetRow + 1, move.targetCol + 1);
+           move.sourceRow , move.sourceCol ,
+           move.targetRow , move.targetCol );
 
     // --- 패스(0,0,0,0) 검사 ---
     if (move.sourceRow == 0 && move.sourceCol == 0 &&
@@ -493,30 +528,30 @@ void broadcast_game_over() {
 // 클라이언트 메시지 처리
 void handle_client_message(int client_idx, char *buffer) {
     printf("클라이언트 %d로부터 메시지: %s\n", client_idx, buffer);
-    
     JsonValue *json_obj = json_parse(buffer);
-    if (!json_obj) {
-        fprintf(stderr, "유효하지 않은 JSON 메시지: %s\n", buffer);
-        return;
-    }
+if (!json_obj) {
+    fprintf(stderr, "유효하지 않은 JSON 메시지: %s\n", buffer);
+    return;
+}
+
+MessageType msg_type = parseMessageType(json_obj);
+
+switch (msg_type) {
+    case MSG_REGISTER:
+        handle_register_message(client_idx, json_obj);
+        break;
+        
+    case MSG_MOVE:
+        handle_move_message(client_idx, json_obj);
+        break;
+        
+    default:
+        fprintf(stderr, "알 수 없는 메시지 유형\n");
+        break;
+}
+
+json_free(json_obj);
     
-    MessageType msg_type = parseMessageType(json_obj);
-    
-    switch (msg_type) {
-        case MSG_REGISTER:
-            handle_register_message(client_idx, json_obj);
-            break;
-            
-        case MSG_MOVE:
-            handle_move_message(client_idx, json_obj);
-            break;
-            
-        default:
-            fprintf(stderr, "알 수 없는 메시지 유형\n");
-            break;
-    }
-    
-    json_free(json_obj);
 }
 
 int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
@@ -657,7 +692,7 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
                     }
                     
                     if (client_idx != -1) {
-                        handle_client_message(client_idx, buffer);
+                        read_and_dispatch_json_messages(client_idx, fds[i].fd);
                     }
                 } else {
                     // 연결 종료 또는 오류

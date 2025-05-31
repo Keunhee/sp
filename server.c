@@ -562,157 +562,168 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
     int server_fd, new_socket;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
-    
-    // 시그널 핸들러 설정
+
+    // 1. 시그널 핸들러 설정 (Ctrl+C 등으로 프로세스가 종료될 때 cleanup_and_exit 호출)
     signal(SIGINT, cleanup_and_exit);
     signal(SIGTERM, cleanup_and_exit);
-    
-    // 초기화
+
+    // 2. 초기화: 클라이언트 배열 및 접속 카운트 초기화
+    client_count = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         clients[i].socket = -1;
         memset(clients[i].username, 0, sizeof(clients[i].username));
     }
-    
-    // 게임 보드 초기화
+
+    // 3. 게임 보드 초기화
     initializeBoard(&game_board);
-    
-    // 소켓 생성
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+
+    // 4. 서버 소켓 생성
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
-    
-    // 소켓 옵션 설정
+
+    // 5. 소켓 옵션 설정 (SO_REUSEADDR)
     int opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
+        close(server_fd);
         exit(EXIT_FAILURE);
     }
-    
-    // 주소 설정
+
+    // 6. 서버 주소 설정 (INADDR_ANY: 모든 로컬 인터페이스 바인딩)
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
-    
-    // 바인딩
+
+    // 7. 바인딩
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
+        close(server_fd);
         exit(EXIT_FAILURE);
     }
-    
-    // 리스닝
+
+    // 8. 리스닝(대기 큐 크기 3)
     if (listen(server_fd, 3) < 0) {
         perror("listen");
+        close(server_fd);
         exit(EXIT_FAILURE);
     }
-    
+
     printf("OctaFlip 서버가 포트 %d에서 시작되었습니다.\n", PORT);
-    
-    char buffer[BUFFER_SIZE];
-    
-    // poll을 위한 구조체 배열 (서버 소켓 + 최대 클라이언트 수)
+
+    // 9. poll을 위한 구조체 배열 준비: 인덱스 0 = 서버 소켓, 1~MAX_CLIENTS = 클라이언트 소켓
     struct pollfd fds[MAX_CLIENTS + 1];
-    int nfds = 1;  // 현재 활성 파일 디스크립터 수
-    
-    // 서버 소켓 설정
+    int nfds = 1;  // 현재 활성화된 fds 인덱스 개수
+
+    // 서버 소켓을 fds[0]에 등록
     fds[0].fd = server_fd;
     fds[0].events = POLLIN;
-    
-    // 클라이언트 소켓 초기화
+
+    // 나머지 슬롯들은 -1(빈 슬롯)로 초기화
     for (int i = 1; i <= MAX_CLIENTS; i++) {
         fds[i].fd = -1;
         fds[i].events = POLLIN;
     }
-    
+
+    // 10. 메인 루프: 타임아웃 체크 + poll() → 이벤트 처리
     while (1) {
-        // 타임아웃 확인
+        // 매 반복마다 타임아웃 여부 확인
         check_timeout();
-        
-        // poll 호출 (100ms 타임아웃)
+
+        // poll 호출 (타임아웃 100ms)
         int poll_result = poll(fds, nfds, 100);
-        
-        if (poll_result < 0 && errno != EINTR) {
-            perror("poll error");
-            continue;
-        }
-        
-        // 새 연결 확인
-        if (fds[0].revents & POLLIN) {
-            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-                perror("accept");
+        if (poll_result < 0) {
+            if (errno == EINTR) {
+                // 신호 처리 뒤 resume
                 continue;
+            } else {
+                perror("poll error");
+                break;
             }
-            
-            // 비차단 모드로 설정
-            set_socket_nonblocking(new_socket);
-            
-            printf("새 연결, 소켓 fd: %d, IP: %s, 포트: %d\n",
-                   new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-            
-            // 빈 슬롯 찾기
-            int slot_found = 0;
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i].socket == -1) {
-                    clients[i].socket = new_socket;
-                    
-                    // poll 배열에 추가
-                    for (int j = 1; j <= MAX_CLIENTS; j++) {
-                        if (fds[j].fd == -1) {
-                            fds[j].fd = new_socket;
-                            if (j >= nfds) nfds = j + 1;
+        }
+
+        // A. 서버 소켓에 새로운 연결 요청이 있는지 확인
+        if (fds[0].revents & POLLIN) {
+            new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+            if (new_socket < 0) {
+                perror("accept");
+            } else {
+                // 새 연결에 대해 비차단 모드 설정
+                if (set_socket_nonblocking(new_socket) < 0) {
+                    close(new_socket);
+                } else {
+                    printf("새 연결, 소켓 fd: %d, IP: %s, 포트: %d\n",
+                           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+                    // 빈 클라이언트 슬롯 탐색
+                    int slot = -1;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (clients[i].socket == -1) {
+                            slot = i;
                             break;
                         }
                     }
-                    
-                    client_count++;
-                    slot_found = 1;
-                    break;
+
+                    if (slot == -1) {
+                        // 빈 슬롯이 없으면 연결 거부
+                        printf("최대 클라이언트 수에 도달. 연결 거부.\n");
+                        close(new_socket);
+                    } else {
+                        // 빈 슬롯에 소켓 할당 및 client_count 증가
+                        clients[slot].socket = new_socket;
+                        client_count++;
+
+                        // pollfd 배열에도 등록 (인덱스는 slot+1)
+                        int poll_index = slot + 1;
+                        fds[poll_index].fd = new_socket;
+                        fds[poll_index].events = POLLIN;
+                        if (poll_index + 1 > nfds) {
+                            nfds = poll_index + 1;
+                        }
+                    }
                 }
-            }
-            
-            if (!slot_found) {
-                // 추가 연결 거부
-                close(new_socket);
-                printf("최대 클라이언트 수에 도달. 연결 거부.\n");
             }
         }
-        
-        // 클라이언트 메시지 확인
-       for (int i = 1; i <= MAX_CLIENTS && i < nfds; i++) {
-    if (fds[i].fd != -1 && (fds[i].revents & POLLIN)) {
-        // 클라이언트로부터 데이터 읽기
-        int valread = read(fds[i].fd, buffer, BUFFER_SIZE - 1);
 
-        if (valread > 0) {
-            buffer[valread] = '\0';
-
-            // 해당 클라이언트 인덱스 찾기
-            int client_idx = -1;
-            for (int j = 0; j < MAX_CLIENTS; j++) {
-                if (clients[j].socket == fds[i].fd) {
-                    client_idx = j;
-                    break;
-                }
+        // B. 각 클라이언트 소켓에 데이터가 있는지 확인
+        for (int i = 1; i < nfds; i++) {
+            if (fds[i].fd == -1) {
+                continue;  // 빈 슬롯
             }
+            if (fds[i].revents & POLLIN) {
+                // fds[i].fd를 갖는 클라이언트 인덱스를 찾음
+                int client_idx = -1;
+                for (int j = 0; j < MAX_CLIENTS; j++) {
+                    if (clients[j].socket == fds[i].fd) {
+                        client_idx = j;
+                        break;
+                    }
+                }
+                if (client_idx == -1) {
+                    // 예상치 못한 상태: 해당 fd가 clients 배열에 없으면 poll 등록 취소
+                    fds[i].fd = -1;
+                    continue;
+                }
 
-            if (client_idx != -1) {
+                // JSON 메시지 수신 및 처리 (read_and_dispatch_json_messages 내부에서 recv() 사용)
                 read_and_dispatch_json_messages(client_idx, fds[i].fd);
-            }
-        } else {
-            // 연결 종료 또는 오류
-            handle_client_disconnect(fds[i].fd);
 
-            // poll 배열에서 제거
-            fds[i].fd = -1;
-
-            // nfds 재계산
-            while (nfds > 1 && fds[nfds-1].fd == -1) {
-                nfds--;
+                // 만약 handle_client_disconnect()에서 해당 클라이언트를 닫았다면,
+                // clients[client_idx].socket이 -1로 설정되어 있음 → poll 목록에서도 제거
+                if (clients[client_idx].socket == -1) {
+                    fds[i].fd = -1;
+                    client_count--;
+                    // nfds 재계산: 뒤쪽이 모두 -1이면 축소
+                    while (nfds > 1 && fds[nfds - 1].fd == -1) {
+                        nfds--;
+                    }
+                }
             }
         }
     }
-}
-    }
-    
+
+    // 서버 루프 종료 시 정리
+    cleanup_and_exit(0);
     return 0;
 }

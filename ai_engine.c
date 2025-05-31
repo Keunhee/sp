@@ -7,7 +7,7 @@
 
 #if defined(__aarch64__)
 // ------------------------------
-// arm64 니깐 나머지는 알빠노 ㅋㅋ
+// 취급주의 어셈블리 건들이지말것
 // ------------------------------
 bool isCorner(int r, int c) {
     bool result;
@@ -75,7 +75,7 @@ int evaluateBoard(const GameBoard *board, char player) {
 
 #elif defined(__x86_64__)
 // ------------------------------
-// x86_64 환경 눈물을 머금고 ㅠㅠ
+// 진짜경고 의도와 다르거나 버그나면 작성자 호출바람
 // ------------------------------
 #include <stdint.h>
 

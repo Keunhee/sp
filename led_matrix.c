@@ -1,3 +1,4 @@
+// 과제 요구사항에 맞게 수정된 led_matrix.c
 #include "led_matrix.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,12 +8,17 @@
 #include <sys/mman.h>
 #include <time.h>
 
-// 기본 색상 정의
-const LEDColor COLOR_RED   = {255, 0, 0};      // 빨간색 (Red 플레이어)
-const LEDColor COLOR_BLUE  = {0, 0, 255};      // 파란색 (Blue 플레이어)
-const LEDColor COLOR_BLACK = {0, 0, 0};        // 검은색 (배경)
-const LEDColor COLOR_WHITE = {255, 255, 255};  // 흰색 (그리드선)
-const LEDColor COLOR_GREEN = {0, 150, 0};      // 녹색 (빈 셀)
+// 과제 요구사항에 맞는 색상 정의
+const LEDColor COLOR_RED      = {255, 0, 0};    // 빨간색 (R 플레이어)
+const LEDColor COLOR_BLUE     = {0, 0, 255};    // 파란색 (B 플레이어)
+const LEDColor COLOR_EMPTY    = {17, 17, 17};   // 어두운 회색 (빈 공간 .)
+const LEDColor COLOR_OBSTACLE = {255, 255, 0};  // 노란색 (장애물 #)
+const LEDColor COLOR_GRID     = {51, 51, 51};   // 회색 (그리드 라인)
+const LEDColor COLOR_BLACK    = {0, 0, 0};      // 검은색 (배경)
+
+// 이전 호환성을 위한 색상 (기존 코드와 호환)
+const LEDColor COLOR_WHITE = {51, 51, 51};      // 그리드 라인과 동일
+const LEDColor COLOR_GREEN = {17, 17, 17};      // 빈 공간과 동일
 
 // LED 매트릭스 크기 정의 (8x8 게임 보드)
 #define LED_MATRIX_WIDTH 64
@@ -56,8 +62,9 @@ static int mem_fd = -1;
 // 시뮬레이션 모드 플래그
 static int simulation_mode = 1;
 
-// 시뮬레이션 모드에서 보드 출력 함수
+// 시뮬레이션 모드에서 보드 출력 함수 (과제 요구사항에 맞게 수정)
 static void printBufferAsBoard() {
+    printf("64x64 LED Panel (시뮬레이션):\n");
     for (int y = 0; y < BOARD_SIZE; y++) {
         for (int x = 0; x < BOARD_SIZE; x++) {
             // 셀의 중앙 픽셀 색상 확인
@@ -65,19 +72,22 @@ static void printBufferAsBoard() {
             int centerY = y * CELL_SIZE + CELL_SIZE / 2;
             LEDColor pixelColor = ledBuffer[centerY][centerX];
             
-            // 색상에 따라 문자 출력
+            // 과제 요구사항에 맞는 색상 매핑
             if (pixelColor.r > 200 && pixelColor.g < 50 && pixelColor.b < 50) {
-                printf("R ");  // 빨간색 (Red 플레이어)
+                printf("R");  // 빨간색 (Red 플레이어)
             } else if (pixelColor.r < 50 && pixelColor.g < 50 && pixelColor.b > 200) {
-                printf("B ");  // 파란색 (Blue 플레이어)
-            } else if (pixelColor.r < 50 && pixelColor.g > 100 && pixelColor.b < 50) {
-                printf(". ");  // 녹색 (빈 셀)
+                printf("B");  // 파란색 (Blue 플레이어)
+            } else if (pixelColor.r > 200 && pixelColor.g > 200 && pixelColor.b < 50) {
+                printf("#");  // 노란색 (장애물)
+            } else if (pixelColor.r < 30 && pixelColor.g < 30 && pixelColor.b < 30) {
+                printf(".");  // 어두운 회색 (빈 공간)
             } else {
-                printf("  ");  // 기타 색상
+                printf(" ");  // 기타 색상
             }
         }
         printf("\n");
     }
+    printf("\n");
 }
 
 // LED 매트릭스 초기화
@@ -214,7 +224,6 @@ static void updateLEDMatrixHardware() {
 void updateLEDMatrix() {
     if (simulation_mode) {
         // 시뮬레이션 모드에서는 콘솔에 출력
-        printf("\nLED 매트릭스 화면 (시뮬레이션):\n");
         printBufferAsBoard();
     } else {
         // 하드웨어 모드에서는 실제 LED 매트릭스 업데이트
@@ -232,28 +241,32 @@ void clearLEDMatrix() {
     }
 }
 
-// 셀 그리기 (내부 함수)
+// 과제 요구사항에 맞는 셀 그리기 함수 (수정됨)
 static void drawCell(int boardX, int boardY, LEDColor color) {
     int startX = boardX * CELL_SIZE;
     int startY = boardY * CELL_SIZE;
     
-    // 셀 내부 채우기
-    for (int y = 0; y < CELL_SIZE - 1; y++) {
-        for (int x = 0; x < CELL_SIZE - 1; x++) {
-            setLEDPixel(startX + x, startY + y, color);
+    // 그리드 라인 먼저 그리기 (1픽셀 두께)
+    for (int i = 0; i < CELL_SIZE; i++) {
+        setLEDPixel(startX + i, startY, COLOR_GRID);                    // 상단 가로선
+        setLEDPixel(startX, startY + i, COLOR_GRID);                    // 좌측 세로선
+        if (boardX == BOARD_SIZE - 1) {
+            setLEDPixel(startX + CELL_SIZE - 1, startY + i, COLOR_GRID); // 우측 세로선 (마지막 열)
+        }
+        if (boardY == BOARD_SIZE - 1) {
+            setLEDPixel(startX + i, startY + CELL_SIZE - 1, COLOR_GRID); // 하단 가로선 (마지막 행)
         }
     }
     
-    // 셀 테두리 그리기 (흰색)
-    for (int i = 0; i < CELL_SIZE; i++) {
-        setLEDPixel(startX + i, startY, COLOR_WHITE);               // 상단 가로선
-        setLEDPixel(startX + i, startY + CELL_SIZE - 1, COLOR_WHITE); // 하단 가로선
-        setLEDPixel(startX, startY + i, COLOR_WHITE);               // 좌측 세로선
-        setLEDPixel(startX + CELL_SIZE - 1, startY + i, COLOR_WHITE); // 우측 세로선
+    // 셀 내부 채우기 (6x6 픽셀 영역, 그리드 라인 제외)
+    for (int y = 1; y < CELL_SIZE - (boardY == BOARD_SIZE - 1 ? 1 : 0); y++) {
+        for (int x = 1; x < CELL_SIZE - (boardX == BOARD_SIZE - 1 ? 1 : 0); x++) {
+            setLEDPixel(startX + x, startY + y, color);
+        }
     }
 }
 
-// OctaFlip 보드를 LED 매트릭스에 표시
+// OctaFlip 보드를 LED 매트릭스에 표시 (과제 요구사항에 맞게 수정)
 void drawBoardOnLED(const GameBoard *board) {
     // 버퍼 초기화
     clearLEDMatrix();
@@ -263,19 +276,22 @@ void drawBoardOnLED(const GameBoard *board) {
         for (int x = 0; x < BOARD_SIZE; x++) {
             LEDColor cellColor;
             
-            // 셀 상태에 따른 색상 선택
+            // 과제 요구사항에 맞는 색상 매핑
             switch (board->cells[y][x]) {
-                case RED_PLAYER:
+                case RED_PLAYER:     // 'R'
                     cellColor = COLOR_RED;
                     break;
-                case BLUE_PLAYER:
+                case BLUE_PLAYER:    // 'B'
                     cellColor = COLOR_BLUE;
                     break;
-                case EMPTY_CELL:
-                    cellColor = COLOR_GREEN;
+                case EMPTY_CELL:     // '.'
+                    cellColor = COLOR_EMPTY;
+                    break;
+                case '#':            // 장애물 (새로 추가)
+                    cellColor = COLOR_OBSTACLE;
                     break;
                 default:
-                    cellColor = COLOR_BLACK;
+                    cellColor = COLOR_EMPTY;
                     break;
             }
             

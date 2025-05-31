@@ -341,13 +341,20 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         free(username);
         return;
     }
+     Move adjusted_move = {
+    .player = move.player,
+    .sourceRow = move.sourceRow - 1,
+    .sourceCol = move.sourceCol - 1,
+    .targetRow = move.targetRow - 1,
+    .targetCol = move.targetCol - 1
+};
 
     // --- 일반 이동 유효성 검사 ---
-    if (!isValidMove(&game_board, &move)) {
+    if (!isValidMove(&game_board, &adjusted_move)) {
         printf("[Server] Invalid move by %s: (%d,%d)->(%d,%d)\n",
                clients[client_idx].username,
-               move.sourceRow + 1, move.sourceCol + 1,
-               move.targetRow + 1, move.targetCol + 1);
+               move.sourceRow , move.sourceCol ,
+               move.targetRow , move.targetCol );
 
         // invalid_move 응답 (board + next_player 포함)
         JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
@@ -360,8 +367,8 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         return;
     }
 
-    // --- 합법적 이동 처리 ---
-    applyMove(&game_board, &move);              // 보드에 반영
+    // --- 합법적 이동 처리 --- 
+    applyMove(&game_board, &adjusted_move);              // 보드에 반영
     game_board.consecutivePasses = 0;           // 패스 카운트 리셋
     printf("[Server] Move applied. New board:\n");
     printBoard(&game_board);

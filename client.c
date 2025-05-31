@@ -123,7 +123,6 @@ end:
  * 강력한 AI 엔진을 사용한 최적 이동 생성 함수 (pthread 제거됨)
  */
 Move generate_smart_move() {
-    printf("\n=== AI 엔진 시작 ===\n");
     printf("현재 플레이어: %c\n", my_color);
     printf("보드 상태: R=%d, B=%d, Empty=%d\n", 
            game_board.redCount, game_board.blueCount, game_board.emptyCount);

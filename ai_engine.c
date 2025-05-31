@@ -540,20 +540,13 @@ Move findBestMove(AIEngine *engine, const GameBoard *board, char player) {
             best_value = current_best_value;
             best_move = current_best;
         }
-        
-        printf("Depth %d: Best value = %d, Nodes = %d\n", 
-               depth, current_best_value, engine->nodes_searched);
     }
-    
-    printf("Final: Best value = %d, Total nodes = %d\n", 
-           best_value, engine->nodes_searched);
     
     return best_move;
 }
 
 // 승리 보장 이동 생성 (메인 함수)
 Move generateWinningMove(const GameBoard *board, char player) {
-    printf("=== 강력한 AI 엔진 시작 ===\n");
     
     // 종반이면 완전 계산 사용
     if (isEndgamePhase(board)) {
@@ -564,7 +557,6 @@ Move generateWinningMove(const GameBoard *board, char player) {
     }
     
     // 메인 AI 엔진 사용
-    printf("고급 AI 엔진 구동 중...\n");
     AIEngine *engine = createAIEngine();
     if (!engine) {
         printf("AI 엔진 초기화 실패 - 기본 이동 사용\n");

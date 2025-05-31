@@ -42,22 +42,22 @@ int evaluateBoard(const GameBoard *board, char player) {
         const short *weights_row_ptr = (const short *)&POSITION_WEIGHTS[r][0];
 
         asm volatile (
-            "ld1    {v0.8b}, [%[board_ptr]]\n"         // 보드 행에서 8 바이트 로드
-            "ld1    {v1.8h}, [%[weights_ptr]]\n"       // 가중치에서 8 쇼트(short) 로드
-            "dup    v10.8b, %w[p_id_asm]\n"            // player_id (바이트)를 v10으로 복제
-            "dup    v11.8b, %w[o_id_asm]\n"            // opponent_id (바이트)를 v11으로 복제
-            "cmeq   v2.8b, v0.8b, v10.8b\n"            // v2[i] = (board[i] == player_id) ? 0xFF : 0x00
-            "cmeq   v3.8b, v0.8b, v11.8b\n"            // v3[i] = (board[i] == opponent_id) ? 0xFF : 0x00
-            "sxtl   v4.8h, v2.8b\n"                    // v2 (바이트)를 v4 (쇼트)로 부호 확장
-            "sxtl   v7.8h, v3.8b\n"                    // v3 (바이트)를 v7 (쇼트)로 부호 확장
-            "and    v6.16b, v1.16b, v4.16b\n"           // v4[i]가 0xFFFF이면 v6[i]=v1[i], 아니면 0
-            "and    v8.16b, v1.16b, v7.16b\n"           // v7[i]가 0xFFFF이면 v8[i]=v1[i], 아니면 0
-            "uaddlv s12, v6.8h\n"                     // v6의 요소 합산 → s12
-            "uaddlv s13, v8.8h\n"                     // v8의 요소 합산 → s13
-            "fmov   w10, s12\n"                        // NEON 스칼라 s12를 GPR w10으로 이동
-            "fmov   w11, s13\n"                        // NEON 스칼라 s13를 GPR w11으로 이동
-            "add    %w[p_score_asm], %w[p_score_asm], w10\n" // 플레이어 점수 누적
-            "add    %w[o_score_asm], %w[o_score_asm], w11\n" // 상대방 점수 누적
+            "ld1    {v0.8b}, [%[board_ptr]]\n"        
+            "ld1    {v1.8h}, [%[weights_ptr]]\n"       
+            "dup    v10.8b, %w[p_id_asm]\n"          
+            "dup    v11.8b, %w[o_id_asm]\n"
+            "cmeq   v2.8b, v0.8b, v10.8b\n"
+            "cmeq   v3.8b, v0.8b, v11.8b\n"
+            "sxtl   v4.8h, v2.8b\n"
+            "sxtl   v7.8h, v3.8b\n"
+            "and    v6.16b, v1.16b, v4.16b\n"
+            "and    v8.16b, v1.16b, v7.16b\n"
+            "uaddlv s12, v6.8h\n"
+            "uaddlv s13, v8.8h\n"
+            "fmov   w10, s12\n"
+            "fmov   w11, s13\n"
+            "add    %w[p_score_asm], %w[p_score_asm], w10\n"
+            "add    %w[o_score_asm], %w[o_score_asm], w11\n"
             : [p_score_asm] "+r" (player_score),
               [o_score_asm] "+r" (opponent_score)
             : [board_ptr] "r" (board_row_ptr),

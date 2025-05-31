@@ -19,7 +19,7 @@
 #define MAX_CLIENTS 2
 #define BUFFER_SIZE 1024
 #define TIMEOUT_SEC 5.0
-
+Move move;
 // 클라이언트 구조체
 typedef struct {
     int socket;
@@ -243,10 +243,12 @@ void handle_register_message(int client_idx, JsonValue *json_obj) {
     // --- ② 정상 등록 처리 ---
     strncpy(clients[client_idx].username, username, sizeof(clients[client_idx].username) - 1);
     clients[client_idx].username[sizeof(clients[client_idx].username) - 1] = '\0';
+    printf("[DEBUG] Registered client_idx=%d, username=%s, assigned_color=%c\n",
+       client_idx, clients[client_idx].username, clients[client_idx].color);
 
     // 색상 할당 (0번 클라이언트: RED, 1번 클라이언트: BLUE)
-    clients[client_idx].color = (client_idx == 0) ? RED_PLAYER : BLUE_PLAYER;
-    printf("[Server] Player registered: %s (color: %c)\n", username, clients[client_idx].color);
+clients[client_idx].color = (client_idx == 0) ? RED_PLAYER : BLUE_PLAYER;
+printf("[Server] Player registered: %s (color: %c)\n", username, clients[client_idx].color);
 
     // ACK 메시지 전송
     JsonValue *ack_msg = createRegisterAckMessage();
@@ -281,11 +283,13 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
     }
 
     char *username = NULL;
-    Move move;
+   
     if (!parseMoveMessage(json_obj, &username, &move)) {
         printf("[Server] Failed to parse move JSON from %s.\n", clients[client_idx].username);
         return;
-    }
+    }printf("[DEBUG] parsed move: player=%c, src=(%d,%d), dst=(%d,%d)\n",
+        move.player, move.sourceRow, move.sourceCol,
+        move.targetRow, move.targetCol);
 
     // 0-based → 1-based 로 로그에 출력
     printf("[Server] Move received from %s: (%d,%d)->(%d,%d)\n",
@@ -387,13 +391,13 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
     free(username);
 }
 
-// 게임 시작 브로드캐스트
 void broadcast_game_start() {
     server_state = SERVER_GAME_IN_PROGRESS;
 
     // --- 보드 초기화 (한 번만) ---
     initializeBoard(&game_board);
 
+    // 클라이언트 이름을 배열로 추출
     const char *usernames[MAX_CLIENTS];
     for (int i = 0; i < MAX_CLIENTS; i++) {
         usernames[i] = clients[i].username;
@@ -414,8 +418,19 @@ void broadcast_game_start() {
     printf("[Server] game_start sent: players=[%s,%s], first_player=%s\n",
            clients[0].username, clients[1].username, clients[0].username);
 
-    // 첫 번째 플레이어 턴 알림
+    // 첫 번째 플레이어 턴 설정
     current_player_idx = 0;
+
+    // ==========================
+    // ★ 신규 추가 부분: 게임 시작 시,
+    //   글로벌 move.player 에 첫 번째 플레이어 색상(R 또는 B) 할당
+    move.player = clients[current_player_idx].color;
+    // (선택) 초기 좌표를 0으로 리셋해 두고 싶으면 아래처럼 해도 됩니다.
+    move.sourceRow = move.sourceCol = 0;
+    move.targetRow = move.targetCol = 0;
+    // ==========================
+
+    // 첫 번째 플레이어에게 턴 알림
     send_your_turn(current_player_idx);
 }
 
@@ -425,6 +440,13 @@ void send_your_turn(int client_idx) {
         return;
     }
 
+    // ==========================
+    // ★ 신규 추가 부분: 매 턴마다 현재 턴 플레이어 색상을 move.player 에 다시 할당
+    move.player = clients[client_idx].color;
+    // (필요하다면) 이전 move 좌표를 초기화하거나, 직전에 적용된 색상의 좌표를 남길 수도 있습니다.
+    // ==========================
+
+    // 'your_turn' 메시지 생성 시 현재 보드 상태와 타임아웃을 함께 보내줌
     JsonValue *turn_msg = createYourTurnMessage(&game_board, TIMEOUT_SEC);
     char *turn_str = json_stringify(turn_msg);
     send(clients[client_idx].socket, turn_str, strlen(turn_str), 0);
@@ -432,6 +454,7 @@ void send_your_turn(int client_idx) {
     free(turn_str);
     json_free(turn_msg);
 
+    // 턴 타이머 시작
     gettimeofday(&turn_start_time, NULL);
     printf("[Server] your_turn sent to %s (timeout=%.1f)\n",
            clients[client_idx].username, TIMEOUT_SEC);

@@ -28,11 +28,16 @@ void clearLEDMatrix();
 // OctaFlip 보드를 LED 매트릭스에 표시
 void drawBoardOnLED(const GameBoard *board);
 
-// 기본 색상 정의
-extern const LEDColor COLOR_RED;     // 빨간색 (Red 플레이어)
-extern const LEDColor COLOR_BLUE;    // 파란색 (Blue 플레이어)
-extern const LEDColor COLOR_BLACK;   // 검은색 (배경)
-extern const LEDColor COLOR_WHITE;   // 흰색 (그리드선)
-extern const LEDColor COLOR_GREEN;   // 녹색 (빈 셀)
+// 과제 요구사항에 맞는 색상 정의 (RGB 값 명시)
+extern const LEDColor COLOR_RED;       // 빨간색 (255,0,0) - R 플레이어
+extern const LEDColor COLOR_BLUE;      // 파란색 (0,0,255) - B 플레이어  
+extern const LEDColor COLOR_EMPTY;     // 어두운 회색 (17,17,17) - 빈 공간 (.)
+extern const LEDColor COLOR_OBSTACLE;  // 노란색 (255,255,0) - 장애물 (#)
+extern const LEDColor COLOR_GRID;      // 회색 (51,51,51) - 그리드 라인
+extern const LEDColor COLOR_BLACK;     // 검은색 (0,0,0) - 배경
+
+// 기존 코드와의 호환성을 위한 별칭
+extern const LEDColor COLOR_WHITE;     // 그리드 라인과 동일 (호환성)
+extern const LEDColor COLOR_GREEN;     // 빈 셀과 동일 (호환성)
 
 #endif /* LED_MATRIX_H */

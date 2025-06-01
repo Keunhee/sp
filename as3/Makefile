@@ -1,8 +1,6 @@
 CC = gcc
 CFLAGS  := -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security -I/usr/local/include
-# LDFLAGS에 -L. 은 librgbmatrix.so.1 링크 생성 규칙 때문에 더 이상 필요 없습니다.
-LDFLAGS := -Wl,-rpath,'$$ORIGIN' -lrgbmatrix
-
+LDFLAGS := -Wl,-rpath,'$$ORIGIN'
 # .so.1 심볼릭 링크 파일을 최종 빌드 목표에 추가합니다.
 all: client
 

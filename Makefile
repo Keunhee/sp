@@ -24,7 +24,7 @@ test_octaflip: test_octaflip.o octaflip.o led_matrix.o
 
 # 클린 타겟
 clean:
-	rm -f *.o server client test_octaflip
+	rm -f *.o server client test_octaflip client_as2
 
 # 실행 테스트
 run_server:

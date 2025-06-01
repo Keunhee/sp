@@ -391,26 +391,31 @@ Move generateMove(const GameBoard *board) {
 #ifdef BOARD_STANDALONE
 int main() {
     GameBoard board;
-    initializeBoard(&board);
-    int command_num = 0;
-    scanf("%d", &command_num);
-    for(int i = 0; i < command_num; i++) {
-        Move move;
-        scanf("%d %d %d %d", &move.sourceRow, &move.sourceCol, &move.targetRow, &move.targetCol);
-        move.player = board.currentPlayer;
-        if (isValidMove(&board, &move)) {
-            applyMove(&board, &move);
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        for(int j = 0; j < BOARD_SIZE; j++) {
+            board->cells[i][j] = EMPTY_CELL;
         }
-        else {
-            printf("Invalid move\n");
-            return 0;
-        }   
-        if (hasGameEnded(&board)) {
-            break;
-        }
-        board.currentPlayer = (board.currentPlayer == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
+        board->cells[i][BOARD_SIZE] = '\0';
     }
-    printResult(&board);
-    return 0;       
+    for(int i = 0; i < 8; i++) {
+        if (scanf("%s", board->cells[i]) != 1) {
+            printf("Invalid input\n");
+            return 0;
+        }
+        int count = 0;
+        for (int i2 = 0; i2<8; i2++){
+            if (board_init[i][i2] == 'R' || board_init[i][i2] == 'B' ||board_init[i][i2] == '.' || board_init[i][i2] == '#')
+            {
+                count++;
+            }
+        }
+        if(count != 8){
+            printf("Board input error\n");
+            exit(0);
+        }   
+    }
+    printBoard(&board);
+    drawBoardOnLED(&board);
+    return 0;
 }
 #endif

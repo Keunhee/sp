@@ -33,7 +33,7 @@ GameBoard game_board;
 char my_username[64];
 char my_color;
 char opponent_username[64];
-int led_enabled = 0;
+int led_enabled = 1;
 
 // 함수 선언
 void handle_server_message(char *buffer);

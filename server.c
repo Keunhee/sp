@@ -95,6 +95,21 @@ void process_client_buffer(int client_idx) {
         cb->length = remaining;
     }
 }
+void send_your_turn(int client_idx) {
+    // 1) 현재 보드 상태와 타임아웃을 이용해 "your_turn" 메시지 생성
+    JsonValue *turn_msg = createYourTurnMessage(&game_board, TIMEOUT_SEC);
+    char *turn_str = json_stringify(turn_msg);
+
+    // 2) 해당 클라이언트 소켓으로 JSON+개행 전송
+    send(clients[client_idx].socket, turn_str, strlen(turn_str), 0);
+    send(clients[client_idx].socket, "\n", 1, 0);
+
+    // 3) 메모리 해제
+    free(turn_str);
+    json_free(turn_msg);
+
+    printf("[Server] sent YOUR_TURN to %s\n", clients[client_idx].username);
+}
 // 비차단 소켓 설정
 int set_socket_nonblocking(int socket_fd) {
     int flags = fcntl(socket_fd, F_GETFL, 0);

@@ -10,10 +10,9 @@
 #include <errno.h>
 #include <time.h>
 #include <poll.h>
-#include "octaflip.h"
 #include "json.h"
 #include "message_handler.h"
-#include "led_matrix.h"
+#include "board.h"
 #include "ai_engine.h"
 
 #define BUFFER_SIZE 1024

@@ -8,8 +8,8 @@ LDFLAGS := -L. -Wl,-rpath,'$$ORIGIN' -lrgbmatrix
 all: client
 
 # 클라이언트 빌드 (LED 포함)
-client: client.o octaflip.o json.o message_handler.o \
-        led_matrix.o ai_engine.o winning_strategy.o
+client: client.o json.o message_handler.o \
+        board.o ai_engine.o winning_strategy.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # 객체 파일 빌드 규칙
@@ -25,13 +25,11 @@ run_client:
 	LD_LIBRARY_PATH=. ./client -ip 127.0.0.1 -port 8888 -username Player1 -led
 
 # 종속성
-server.o: server.c octaflip.h json.h message_handler.h
-client.o: client.c octaflip.h json.h message_handler.h led_matrix.h ai_engine.h
-octaflip.o: octaflip.c octaflip.h
-led_matrix.o: led_matrix.c led_matrix.h octaflip.h
+client.o: client.c json.h message_handler.h board.h ai_engine.h
+board.o: board.c board.h
 json.o: json.c json.h
-message_handler.o: message_handler.c message_handler.h json.h octaflip.h
-ai_engine.o: ai_engine.c ai_engine.h winning_strategy.h octaflip.h
-winning_strategy.o: winning_strategy.c winning_strategy.h ai_engine.h octaflip.h
+message_handler.o: message_handler.c message_handler.h json.h board.h
+ai_engine.o: ai_engine.c ai_engine.h winning_strategy.h board.h
+winning_strategy.o: winning_strategy.c winning_strategy.h ai_engine.h board.h
 
 .PHONY: all clean run_client

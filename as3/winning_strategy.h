@@ -1,7 +1,7 @@
 #ifndef WINNING_STRATEGY_H
 #define WINNING_STRATEGY_H
 
-#include "octaflip.h"
+#include "board.h"
 
 // 초반 정석 이동들
 typedef struct {

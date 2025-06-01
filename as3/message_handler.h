@@ -1,7 +1,7 @@
 #ifndef MESSAGE_HANDLER_H
 #define MESSAGE_HANDLER_H
 
-#include "octaflip.h"
+#include "board.h"
 #include "json.h"
 
 // 메시지 유형 정의

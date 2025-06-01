@@ -1,7 +1,7 @@
 #ifndef AI_ENGINE_H
 #define AI_ENGINE_H
 
-#include "octaflip.h"
+#include "board.h"
 #include <time.h>
 #include <limits.h>
 #include <stdbool.h>

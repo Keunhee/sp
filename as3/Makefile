@@ -3,11 +3,7 @@ CFLAGS  := -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wf
 LDFLAGS := -L. -Wl,-rpath,'$$ORIGIN' -lrgbmatrix
 
 
-all: server client
-
-# 서버 빌드 (LED 없음)
-server: server.o octaflip.o json.o message_handler.o
-	$(CC) $(CFLAGS) -o $@ $^
+all: client
 
 # 클라이언트 빌드 (LED 포함)
 client: client.o octaflip.o json.o message_handler.o led_matrix.o ai_engine.o winning_strategy.o
@@ -22,9 +18,6 @@ clean:
 	rm -f *.o server client client_as2
 
 # 실행 테스트
-run_server:
-	./server
-
 run_client:
 	./client -ip 127.0.0.1 -port 8888 -username Player1 -led
 

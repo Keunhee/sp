@@ -1,6 +1,7 @@
 CC = gcc
 CFLAGS  := -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security -I/usr/local/include
-LDFLAGS := -L. -Wl,-rpath=. -lrgbmatrix
+LDFLAGS := -L. -Wl,-rpath,'$$ORIGIN' -lrgbmatrix
+
 
 all: server client
 

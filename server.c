@@ -278,8 +278,12 @@ void handle_register_message(int client_idx, JsonValue *json_obj) {
     }
 
     // --- ② 정상 등록 처리 ---
-    strncpy(clients[client_idx].username, username, sizeof(clients[client_idx].username) - 1);
-    clients[client_idx].username[sizeof(clients[client_idx].username) - 1] = '\0';
+// 올바른 사용: clients[client_idx].username (char[64])만 dest로 전달
+strncpy(clients[client_idx].username,
+        username,
+        sizeof(clients[client_idx].username) - 1);
+clients[client_idx].username[sizeof(clients[client_idx].username) - 1] = '\0';
+
     printf("[DEBUG] Registered client_idx=%d, username=%s, assigned_color=%c\n",
        client_idx, clients[client_idx].username, clients[client_idx].color);
 

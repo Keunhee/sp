@@ -89,14 +89,14 @@ int set_socket_nonblocking(int socket_fd) {
 void handle_client_disconnect(int socket_fd) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    
+
     // 연결 정보 출력
     if (getpeername(socket_fd, (struct sockaddr*)&address, &addrlen) == 0) {
         printf("연결 종료, IP: %s, 포트: %d\n",
                inet_ntoa(address.sin_addr), ntohs(address.sin_port));
     }
-    
-    // 클라이언트 찾기
+
+    // 클라이언트 인덱스 찾기
     int disconnected_idx = -1;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket == socket_fd) {
@@ -104,48 +104,66 @@ void handle_client_disconnect(int socket_fd) {
             break;
         }
     }
-    
     if (disconnected_idx == -1) return;
-    
-    // 소켓 닫기
-    close(socket_fd);
-    clients[disconnected_idx].socket = -1;
-    memset(clients[disconnected_idx].username, 0, sizeof(clients[disconnected_idx].username));
-    client_count--;
-    
+
     printf("플레이어 %s 연결 끊김\n", clients[disconnected_idx].username);
-    
-    // 게임 중이면 상대방에게 승리 선언
+
+    // 게임 진행 중이었다면 상대방에게 승리 메시지 전송
     if (server_state == SERVER_GAME_IN_PROGRESS) {
         int other_idx = (disconnected_idx + 1) % MAX_CLIENTS;
-        
+
+        // 두 플레이어의 이름과 점수 배열 생성
+        const char *players[2] = {
+            clients[0].username,
+            clients[1].username
+        };
+        int scores[2] = { 0, 0 };
+
+        // 끊긴 쪽이 0번이면 1번을 승자로, 1번이면 0번을 승자로 설정
+        if (disconnected_idx == 0) {
+            scores[1] = 1;
+        } else {
+            scores[0] = 1;
+        }
+
+        // 게임 오버 메시지 JSON 생성
+        JsonValue *game_over_msg = createGameOverMessage(players, scores);
+        char *json_str = json_stringify(game_over_msg);
+
+        // 남아 있는 클라이언트(상대방)에게 전송
         if (clients[other_idx].socket != -1) {
-            // 게임 종료 처리 (상대방 승리)
-            const char *players[2] = {clients[0].username, clients[1].username};
-            int scores[2] = {0, 0};
-            
-            // 연결 끊긴 플레이어가 아닌 쪽을 승자로 설정
-            if (disconnected_idx == 0) {
-                scores[1] = 1; // 플레이어 1 승리
-            } else {
-                scores[0] = 1; // 플레이어 0 승리
-            }
-            
-            JsonValue *game_over_msg = createGameOverMessage(players, scores);
-            char *json_str = json_stringify(game_over_msg);
-            
             send(clients[other_idx].socket, json_str, strlen(json_str), 0);
             send(clients[other_idx].socket, "\n", 1, 0);
-            free(json_str);
-            json_free(game_over_msg);
-            
-            printf("플레이어 %s가 상대방 연결 끊김으로 승리\n", clients[other_idx].username);
         }
-        
-        // 게임 상태 초기화
+
+        // 끊긴 클라이언트에게도 가능하다면 전송
+        if (clients[disconnected_idx].socket != -1) {
+            send(clients[disconnected_idx].socket, json_str, strlen(json_str), 0);
+            send(clients[disconnected_idx].socket, "\n", 1, 0);
+            usleep(50 * 1000);  // 커널 버퍼가 전송될 시간 확보
+        }
+
+        free(json_str);
+        json_free(game_over_msg);
+
+        printf("플레이어 %s가 상대방 연결 끊김으로 승리\n", clients[other_idx].username);
+
+        // 서버 내부 상태 초기화
         server_state = SERVER_WAITING_PLAYERS;
         initializeBoard(&game_board);
         current_player_idx = 0;
+    }
+
+    // 소켓 닫고 클라이언트 정보 초기화
+    close(clients[disconnected_idx].socket);
+    clients[disconnected_idx].socket = -1;
+    memset(clients[disconnected_idx].username, 0, sizeof(clients[disconnected_idx].username));
+    client_count--;
+
+    // 두 명 모두 연결이 끊겼으면 서버 종료
+    if (client_count == 0) {
+        printf("[Server] 모든 플레이어 연결 종료 → 서버 종료\n");
+        cleanup_and_exit(0);
     }
 }
 

@@ -15,6 +15,7 @@
 #include "json.h"
 #include "message_handler.h"
 
+#define SERVER_WAITING_OPPONENT 3 
 #define PORT 8888
 #define MAX_CLIENTS 2
 #define BUFFER_SIZE 1024
@@ -126,69 +127,64 @@ int set_socket_nonblocking(int socket_fd) {
     return 0;
 }
 
-// 클라이언트 연결 끊김 처리
-void handle_client_disconnect(int socket_fd) {
-    struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
+/* 새 상태값을 하나 추가하세요. */
+#define SERVER_WAITING_OPPONENT 3   /* 1명 남아 새 상대 기다리는 중 */
 
-    if (getpeername(socket_fd, (struct sockaddr*)&address, &addrlen) == 0) {
-        printf("연결 종료, IP: %s, 포트: %d\n",
+void handle_client_disconnect(int socket_fd)
+{
+    struct sockaddr_in address; socklen_t addrlen = sizeof address;
+    if (getpeername(socket_fd,(struct sockaddr*)&address,&addrlen)==0) {
+        printf("연결 종료, IP:%s, 포트:%d\n",
                inet_ntoa(address.sin_addr), ntohs(address.sin_port));
     }
 
+    /* 1) 끊긴 플레이어 인덱스 찾기 */
     int disconnected_idx = -1;
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].socket == socket_fd) {
-            disconnected_idx = i;
-            break;
-        }
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i].socket == socket_fd) { disconnected_idx = i; break; }
     }
     if (disconnected_idx == -1) return;
 
     printf("플레이어 %s 연결 끊김\n", clients[disconnected_idx].username);
 
-    if (server_state == SERVER_GAME_IN_PROGRESS) {
+    /* 2) 게임 중인데 다른 플레이어가 살아 있으면 게임을 계속한다 */
+    if (server_state == SERVER_GAME_IN_PROGRESS && client_count > 1) {
+
         int other_idx = (disconnected_idx + 1) % MAX_CLIENTS;
-        const char *players[2] = { clients[0].username, clients[1].username };
-        int scores[2] = { 0, 0 };
-        if (disconnected_idx == 0) scores[1] = 1;
-        else               scores[0] = 1;
 
-        JsonValue *game_over_msg = createGameOverMessage(players, scores);
-        char *json_str = json_stringify(game_over_msg);
+        /* a) 남아 있는 플레이어에게 '상대가 나갔음' 통보 */
+        JsonValue *left = createOpponentLeftMessage(clients[disconnected_idx].username);
+        char *txt = json_stringify(left);
 
-        if (clients[other_idx].socket != -1) {
-            send(clients[other_idx].socket, json_str, strlen(json_str), 0);
-            send(clients[other_idx].socket, "\n", 1, 0);
-        }
-        if (clients[disconnected_idx].socket != -1) {
-            send(clients[disconnected_idx].socket, json_str, strlen(json_str), 0);
-            send(clients[disconnected_idx].socket, "\n", 1, 0);
-            usleep(50 * 1000);
+        send(clients[other_idx].socket, txt, strlen(txt), 0);
+        send(clients[other_idx].socket, "\n", 1, 0);
+
+        free(txt); json_free(left);
+
+        /* b) 끊긴 쪽이 현재 턴이었다면 바로 턴 넘김 */
+        if (current_player_idx == disconnected_idx) {
+            current_player_idx = other_idx;
+            send_your_turn(current_player_idx);
         }
 
-        free(json_str);
-        json_free(game_over_msg);
-
-        printf("플레이어 %s가 상대방 연결 끊김으로 승리\n", clients[other_idx].username);
-
-        server_state = SERVER_WAITING_PLAYERS;
-        initializeBoard(&game_board);
-        current_player_idx = 0;
+        /* c) 상태를 '1명 남음' 으로 표시 */
+        server_state = SERVER_WAITING_OPPONENT;
     }
 
+    /* 3) 끊긴 소켓 정리 */
     close(clients[disconnected_idx].socket);
     clients[disconnected_idx].socket = -1;
     memset(clients[disconnected_idx].username, 0,
-           sizeof(clients[disconnected_idx].username));
+           sizeof clients[disconnected_idx].username);
     client_count--;
 
-    // 두 명 다 끊겼으면 서버 종료
+    /* 4) 모두 끊겼으면 서버 종료 */
     if (client_count == 0) {
         printf("[Server] 모든 플레이어 연결 종료 → 서버 종료\n");
         cleanup_and_exit(0);
     }
 }
+
 
 void check_timeout() {
     if (server_state != SERVER_GAME_IN_PROGRESS) return;

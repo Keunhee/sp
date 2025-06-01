@@ -23,7 +23,7 @@ typedef enum {
     // 오류
     MSG_UNKNOWN
 } MessageType;
-
+JsonValue* createOpponentLeftMessage(const char *leftUsername);
 // 클라이언트 -> 서버: 등록 메시지 생성
 JsonValue* createRegisterMessage(const char *username);
 

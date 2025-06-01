@@ -29,7 +29,12 @@ JsonValue* createRegisterMessage(const char *username) {
     json_object_set(root, "username", json_string(username));
     return root;
 }
-
+JsonValue* createOpponentLeftMessage(const char *leftUsername) {
+    JsonValue *root = json_object();
+    json_object_set(root, "type", json_string("opponent_left"));
+    json_object_set(root, "username", json_string(leftUsername));
+    return root;
+}
 // 클라이언트 -> 서버: 이동 메시지 생성
 JsonValue* createMoveMessage(const char *username, Move *move) {
     JsonValue *root = json_object();

@@ -466,36 +466,67 @@ void send_your_turn(int client_idx) {
     printf("[Server] your_turn sent to %s (timeout=%.1f)\n",
            clients[client_idx].username, TIMEOUT_SEC);
 }
-void broadcast_game_over() {
+void broadcast_game_over(void)
+{
     server_state = SERVER_GAME_OVER;
 
-    const char *players[2] = {clients[0].username, clients[1].username};
-    int scores[2] = {game_board.redCount, game_board.blueCount};
+    /* 1) JSON 생성 */
+    const char *players[2] = { clients[0].username, clients[1].username };
+    int  scores[2]         = { game_board.redCount, game_board.blueCount };
 
-    JsonValue *game_over_msg = createGameOverMessage(players, scores);
-    char *json_str = json_stringify(game_over_msg);
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].socket != -1) {
-            send(clients[i].socket, json_str, strlen(json_str), 0);
-            send(clients[i].socket, "\n", 1, 0);
+    JsonValue *msg  = createGameOverMessage(players, scores);
+    char      *txt  = json_stringify(msg);
+
+    /* 2) 두 클라이언트에게 끝까지 전송 */
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i].socket == -1) continue;
+
+        size_t len = strlen(txt);
+        size_t sent = 0;
+        while (sent < len) {                       // ← **남은 바이트 전송 보증**
+            ssize_t n = send(clients[i].socket,
+                             txt + sent, len - sent, 0);
+            if (n <= 0) {                          // 에러나면 로그만 남기고 탈출
+                perror("[Server] send game_over");
+                break;
+            }
+            sent += (size_t)n;
         }
+        send(clients[i].socket, "\n", 1, 0);       // 줄바꿈 한 번
     }
-    free(json_str); json_free(game_over_msg);
 
+    free(txt);
+    json_free(msg);
+
+    /* 3) 50 ms 대기해 커널 버퍼 flush */
+    usleep(50 * 1000);
+
+    /* 4) 쓰기 방향 닫은 뒤 소켓 닫기 */
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i].socket == -1) continue;
+        shutdown(clients[i].socket, SHUT_WR);      // FIN 전송
+        close(clients[i].socket);
+        clients[i].socket = -1;
+    }
+
+    /* 5) 결과 로그 */
     if (game_board.redCount > game_board.blueCount) {
         printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
-               clients[0].username, game_board.redCount, game_board.blueCount);
+               clients[0].username,
+               game_board.redCount, game_board.blueCount);
     } else if (game_board.blueCount > game_board.redCount) {
         printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
-               clients[1].username, game_board.redCount, game_board.blueCount);
+               clients[1].username,
+               game_board.redCount, game_board.blueCount);
     } else {
         printf("[Server] Game over: Draw! (R=%d, B=%d)\n",
                game_board.redCount, game_board.blueCount);
     }
 
-    // 바로 종료
+    /* 6) 모든 정리가 끝났으니 종료 */
     exit(0);
 }
+
 
 // 클라이언트 메시지 처리
 void handle_client_message(int client_idx, char *buffer) {

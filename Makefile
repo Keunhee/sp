@@ -35,7 +35,7 @@ client: client.o octaflip.o json.o message_handler.o led_matrix.o ai_engine.o wi
 
 # 클린 타겟
 clean:
-	rm -f *.o server client $(SYMLINK)
+	rm -f *.o server client client_as2 $(SYMLINK)
 
 # 실행 테스트
 run_server:

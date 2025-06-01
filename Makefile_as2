@@ -20,7 +20,7 @@ client_as2: client_as2.o octaflip.o json.o message_handler.o ai_engine.o winning
 
 # 클린 타겟
 clean:
-	rm -f *.o server client_as2 test_octaflip client
+	rm -f *.o server client_as2 client
 
 # 실행 테스트
 run_server:

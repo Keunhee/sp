@@ -516,7 +516,7 @@ Move findBestMove(AIEngine *engine, const GameBoard *board, char player) {
             break;
         }
         
-        Move current_best;
+        Move current_best = { 0 };  
         int current_best_value = NEG_INFINITY_VAL;
         
         for (int i = 0; i < move_count; i++) {

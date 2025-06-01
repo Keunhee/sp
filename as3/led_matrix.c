@@ -32,6 +32,7 @@ int ledMatrixInit() {
     options.chain_length = 1;
     options.parallel = 1;
     options.hardware_mapping = "regular";  // 혹은 "adafruit-hat", "adafruit-hat-pwm" 등
+    options.disable_hardware_pulsing = 1;
 
     matrix = led_matrix_create_from_options(&options, NULL, NULL);
     if (!matrix) {

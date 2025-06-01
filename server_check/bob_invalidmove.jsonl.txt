@@ -1,0 +1,7 @@
+{"type":"register","username":"Bob"}
+{"type":"move","username":"Bob","sx":1,"sy":8,"tx":7,"ty":6}
+{"type":"move","username":"Bob","sx":1,"sy":6,"tx":1,"ty":4}
+{"type":"move","username":"Bob","sx":8,"sy":1,"tx":8,"ty":3}
+{"type":"move","username":"Bob","sx":8,"sy":3,"tx":8,"ty":5}
+
+

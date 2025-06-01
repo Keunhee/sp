@@ -1,25 +1,8 @@
-ARCH := $(shell uname -m)
-
-ifeq ($(ARCH),x86_64)
-    LIBRGBMATRIX_FILE := librgbmatrix_x64.so
-else ifeq ($(ARCH),aarch64)
-    LIBRGBMATRIX_FILE := librgbmatrix_arm.so
-else
-    $(error Unsupported architecture: $(ARCH))
-endif
-
-SYMLINK := librgbmatrix.so.1
-LIBRGBMATRIX := ./$(SYMLINK)
-
 CC = gcc
 CFLAGS  := -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Wformat-security -Werror=format-security -I/usr/local/include
-LDFLAGS := -L. -Wl,-rpath=. $(LIBRGBMATRIX)
+LDFLAGS := -L. -Wl,-rpath=. -lrgbmatrix
 
-all: symlink server client
-
-# 심볼릭 링크 생성 (컴파일 전 필요)
-symlink:
-	ln -sf $(LIBRGBMATRIX_FILE) $(SYMLINK)
+all: server client
 
 # 서버 빌드 (LED 없음)
 server: server.o octaflip.o json.o message_handler.o
@@ -35,7 +18,7 @@ client: client.o octaflip.o json.o message_handler.o led_matrix.o ai_engine.o wi
 
 # 클린 타겟
 clean:
-	rm -f *.o server client client_as2 $(SYMLINK)
+	rm -f *.o server client client_as2
 
 # 실행 테스트
 run_server:
@@ -54,4 +37,4 @@ message_handler.o: message_handler.c message_handler.h json.h octaflip.h
 ai_engine.o: ai_engine.c ai_engine.h winning_strategy.h octaflip.h
 winning_strategy.o: winning_strategy.c winning_strategy.h ai_engine.h octaflip.h
 
-.PHONY: all clean run_server run_client symlink
+.PHONY: all clean run_server run_client

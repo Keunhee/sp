@@ -4,14 +4,14 @@ CFLAGS = -Wall -Wextra -g -O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wfor
 LDFLAGS = 
 
 # 기본 타겟
-all: server client_as2
+all: server client
 
 # 서버 빌드
 server: server.o octaflip.o json.o message_handler.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # 클라이언트 빌드 (pthread 제거됨)
-client_as2: client_as2.o octaflip.o json.o message_handler.o ai_engine.o winning_strategy.o
+client: client.o octaflip.o json.o message_handler.o ai_engine.o winning_strategy.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # 객체 파일 빌드 규칙
@@ -34,7 +34,7 @@ run_test:
 
 # 종속성
 server.o: server.c octaflip.h json.h message_handler.h
-client_as2.o: client_as2.c octaflip.h json.h message_handler.h ai_engine.h
+client.o: client.c octaflip.h json.h message_handler.h ai_engine.h
 octaflip.o: octaflip.c octaflip.h
 
 json.o: json.c json.h

@@ -393,9 +393,9 @@ int main() {
     GameBoard board;
     for(int i = 0; i < BOARD_SIZE; i++) {
         for(int j = 0; j < BOARD_SIZE; j++) {
-            board->cells[i][j] = EMPTY_CELL;
+            board.cells[i][j] = EMPTY_CELL;
         }
-        board->cells[i][BOARD_SIZE] = '\0';
+        board.cells[i][BOARD_SIZE] = '\0';
     }
     for(int i = 0; i < 8; i++) {
         if (scanf("%s", board->cells[i]) != 1) {
@@ -404,7 +404,7 @@ int main() {
         }
         int count = 0;
         for (int i2 = 0; i2<8; i2++){
-            if (board_init[i][i2] == 'R' || board_init[i][i2] == 'B' ||board_init[i][i2] == '.' || board_init[i][i2] == '#')
+            if (board[i][i2] == 'R' || board[i][i2] == 'B' ||board[i][i2] == '.' || board[i][i2] == '#')
             {
                 count++;
             }

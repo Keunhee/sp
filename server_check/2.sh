@@ -1,5 +1,5 @@
 #!/bin/bash
 while IFS= read -r line; do
   echo "$line"
-  sleep 2
-done < bob.jsonl | nc 0.0.0.0 8888
+  sleep 4
+done < bob.jsonl | nc 127.0.0.1 8888

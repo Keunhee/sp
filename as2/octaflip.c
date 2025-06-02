@@ -5,66 +5,54 @@
 #include <stdio.h>
 
 #ifdef __aarch64__
-static inline int count_player_pieces_asm(
+inline int count_player_pieces_asm(
     const char *board,
-    uint8_t      target,
-    int          rows,
-    int          cols,
-    size_t       stride
+    unsigned char target,
+    int rows,
+    int cols,
+    size_t stride
 ) {
-    int result;
-    __asm__ __volatile__ (
-        "mov    x0, %[BOARD]        \n"
-        "mov    w1, %w[TARGET]      \n"
-        "mov    w2, %w[ROWS]        \n"
-        "mov    w3, %w[COLS]        \n"
-        "mov    x4, %[STRIDE]       \n"
-        "mov    w24, wzr            \n"
-        "dup    v8.8b, w1           \n"
-        "1:                         \n"
-        "cmp    w2, #0              \n"
-        "beq    6f                  \n"
-        "mov    x6, x0              \n"
-        "mov    w7, w3              \n"
-        "2:                         \n"
-        "cmp    w7, #8              \n"
-        "blt    3f                  \n"
-        "ld1    {v9.8b}, [x6]       \n"
-        "cmeq   v10.8b, v9.8b, v8.8b\n"
-        "ushr   v10.8b, v10.8b, #7   \n"
-        "uaddlv h11, v10.8b         \n"
-        "umov   w10, v11.h[0]       \n"
-        "add    w24, w24, w10       \n"
-        "add    x6, x6, #8          \n"
-        "sub    w7, w7, #8          \n"
-        "b      2b                  \n"
-        "3:                         \n"
-        "cmp    w7, #0              \n"
-        "beq    5f                  \n"
-        "ldrb   w12, [x6], #1       \n"
-        "cmp    w12, w1             \n"
-        "cinc   w24, w24, eq        \n"
-        "sub    w7, w7, #1          \n"
-        "b      3b                  \n"
-        "5:                         \n"
-        "add    x0, x0, x4          \n"
-        "sub    w2, w2, #1          \n"
-        "b      1b                  \n"
-        "6:                         \n"
-        "mov    w0, w24             \n"
-        : "=r"(result)
-        : [BOARD]  "r"((unsigned long)board),
-          [TARGET] "r"((unsigned long)target),
-          [ROWS]   "r"((unsigned long)rows),
-          [COLS]   "r"((unsigned long)cols),
-          [STRIDE] "r"(stride)
-        : "x0","x1","x2","x3","x4",
-          "w7","w10","w12","w24",
-          "x6",
-          "v8","v9","v10","v11",
-          "cc","memory"
-    );
-    return result;
+    int total = 0;
+
+    for (int r = 0; r < rows; r++) {
+        const char *row_ptr = &board[r * stride];
+        int count;
+
+        asm volatile (
+            "ld1    {v0.8b}, [%[row]]         \n"
+            "dup    v1.8b, %w[target]         \n"
+            "cmeq   v2.8b, v0.8b, v1.8b        \n"
+            "ushr   v2.8b, v2.8b, #7           \n"
+            "uaddlv h3, v2.8b                  \n"
+            "umov   %w[result], v3.h[0]        \n"
+            : [result] "=r" (count)
+            : [row] "r" (row_ptr),
+              [target] "r" ((unsigned int)target)
+            : "v0", "v1", "v2", "v3", "memory"
+        );
+
+        total += count;
+    }
+
+    return total;
+}
+#else
+int count_player_pieces_asm(
+    const char *board,
+    unsigned char target,
+    int rows,
+    int cols,
+    size_t stride
+) {
+    int count = 0;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            if (board[r * stride + c] == (char)target) {
+                count++;
+            }
+        }
+    }
+    return count;
 }
 #endif
 
@@ -109,17 +97,25 @@ int countEmpty(const GameBoard *board) {
 
 void countPieces(GameBoard *board) {
 #ifdef __aarch64__
-    board->redCount  = count_player_pieces_asm(
-        &board->cells[0][0], RED_PLAYER,
-        BOARD_SIZE, BOARD_SIZE,
-        BOARD_SIZE
+  
+    board->redCount = count_player_pieces_asm(
+        (const char *)board->cells, 
+        (unsigned char)RED_PLAYER, 
+        BOARD_SIZE, 
+        BOARD_SIZE, 
+        sizeof(board->cells[0])  // BOARD_SIZE + 1
     );
+    
     board->blueCount = count_player_pieces_asm(
-        &board->cells[0][0], BLUE_PLAYER,
-        BOARD_SIZE, BOARD_SIZE,
-        BOARD_SIZE
+        (const char *)board->cells, 
+        (unsigned char)BLUE_PLAYER, 
+        BOARD_SIZE, 
+        BOARD_SIZE, 
+        sizeof(board->cells[0])  // BOARD_SIZE + 1
     );
+    
     board->emptyCount = countEmpty(board);
+
 #else
     board->redCount = 0;
     board->blueCount = 0;

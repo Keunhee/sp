@@ -15,7 +15,7 @@
 #include "json.h"
 #include "message_handler.h"
 
-#define PORT 8888
+#define DEFAULT_PORT 8888
 #define MAX_CLIENTS 2
 #define BUFFER_SIZE 1024
 #define TIMEOUT_SEC 5.0
@@ -33,7 +33,13 @@ typedef enum {
     SERVER_GAME_IN_PROGRESS,
     SERVER_GAME_OVER
 } ServerState;
+typedef struct {
+    char buffer[BUFFER_SIZE * 2];  // 더 큰 버퍼
+    size_t length;
+} ClientBuffer;
 
+// 전역 변수에 추가
+ClientBuffer client_buffers[MAX_CLIENTS];
 // 전역 변수
 ServerState server_state = SERVER_WAITING_PLAYERS;
 Client clients[MAX_CLIENTS];
@@ -41,7 +47,8 @@ int client_count = 0;
 GameBoard game_board;
 int current_player_idx = 0;
 struct timeval turn_start_time;
-
+char server_ip[INET_ADDRSTRLEN] = "127.0.0.1";  // 기본값: 모든 인터페이스
+int server_port = DEFAULT_PORT;
 // 함수 선언
 void handle_client_message(int client_idx, char *buffer);
 void handle_register_message(int client_idx, JsonValue *json_obj);
@@ -54,7 +61,70 @@ void broadcast_game_over();
 void log_game_state(const char *action, int player_idx, Move *move);
 int set_socket_nonblocking(int socket_fd);
 void cleanup_and_exit(int signal);
-
+void init_client_buffers() {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        memset(&client_buffers[i], 0, sizeof(ClientBuffer));
+    }
+}
+void print_usage(const char *program_name) {
+    printf("Usage: %s [options]\n", program_name);
+    printf("Options:\n");
+    printf("  -p, --port <port>    서버 포트 번호 (기본값: %d)\n", DEFAULT_PORT);
+    printf("  -i, --ip <ip>        서버 IP 주소 (기본값: 0.0.0.0 - 모든 인터페이스)\n");
+    printf("  -h, --help           이 도움말 표시\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s                           # 기본 설정으로 실행 (0.0.0.0:8888)\n", program_name);
+    printf("  %s -p 9999                   # 포트 9999로 실행\n", program_name);
+    printf("  %s -i 127.0.0.1 -p 8080      # 127.0.0.1:8080으로 실행\n", program_name);
+    printf("  %s --ip 192.168.1.100 --port 7777  # 192.168.1.100:7777로 실행\n", program_name);
+}
+int parse_arguments(int argc, char *argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--port") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: %s 옵션에 포트 번호가 필요합니다.\n", argv[i]);
+                return -1;
+            }
+            
+            server_port = atoi(argv[i + 1]);
+            if (server_port <= 0 || server_port > 65535) {
+                fprintf(stderr, "Error: 유효하지 않은 포트 번호: %s (1-65535 범위여야 합니다)\n", argv[i + 1]);
+                return -1;
+            }
+            i++; // 다음 인자 건너뛰기
+            
+        } else if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--ip") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: %s 옵션에 IP 주소가 필요합니다.\n", argv[i]);
+                return -1;
+            }
+            
+            // IP 주소 유효성 검사
+            struct sockaddr_in sa;
+            int result = inet_pton(AF_INET, argv[i + 1], &(sa.sin_addr));
+            if (result == 0) {
+                fprintf(stderr, "Error: 유효하지 않은 IP 주소: %s\n", argv[i + 1]);
+                return -1;
+            }
+            
+            strncpy(server_ip, argv[i + 1], sizeof(server_ip) - 1);
+            server_ip[sizeof(server_ip) - 1] = '\0';
+            i++; // 다음 인자 건너뛰기
+            
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            exit(0);
+            
+        } else {
+            fprintf(stderr, "Error: 알 수 없는 옵션: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return -1;
+        }
+    }
+    
+    return 0;
+}
 // 시그널 핸들러
 void cleanup_and_exit(int signal __attribute__((unused))) {
     printf("\n서버 종료 중...\n");
@@ -84,7 +154,45 @@ int set_socket_nonblocking(int socket_fd) {
     
     return 0;
 }
-
+void process_client_data(int client_idx, char *new_data, size_t data_len) {
+    ClientBuffer *cb = &client_buffers[client_idx];
+    
+    // 새 데이터를 버퍼에 추가
+    if (cb->length + data_len >= sizeof(cb->buffer) - 1) {
+        printf("[Server] Buffer overflow for client %d, resetting\n", client_idx);
+        cb->length = 0;  // 버퍼 리셋
+    }
+    
+    memcpy(cb->buffer + cb->length, new_data, data_len);
+    cb->length += data_len;
+    cb->buffer[cb->length] = '\0';
+    
+    // 개행문자('\n')로 구분된 완전한 메시지들 처리
+    char *start = cb->buffer;
+    char *newline_pos;
+    
+    while ((newline_pos = strchr(start, '\n')) != NULL) {
+        *newline_pos = '\0';  // 개행문자를 null terminator로 변경
+        
+        // 빈 메시지가 아닌 경우에만 처리
+        if (strlen(start) > 0) {
+            printf("[Server] Processing complete JSON: %s\n", start);
+            handle_client_message(client_idx, start);
+        }
+        
+        start = newline_pos + 1;  // 다음 메시지로 이동
+    }
+    
+    // 처리되지 않은 부분적 메시지를 버퍼 앞으로 이동
+    size_t remaining = strlen(start);
+    if (remaining > 0) {
+        memmove(cb->buffer, start, remaining + 1);  // null terminator 포함
+        cb->length = remaining;
+    } else {
+        cb->length = 0;
+        cb->buffer[0] = '\0';
+    }
+}
 // 클라이언트 연결 끊김 처리
 void handle_client_disconnect(int socket_fd) {
     struct sockaddr_in address;
@@ -171,6 +279,8 @@ void check_timeout() {
             send(clients[current_player_idx].socket, inv_str, strlen(inv_str), 0);
             send(clients[current_player_idx].socket, "\n", 1, 0);
             free(inv_str); json_free(inv);
+            current_player_idx = (current_player_idx + 1) % MAX_CLIENTS;
+            send_your_turn(current_player_idx);
         } else {
             // 진짜 패스
             printf("[Server] %s has no valid moves → auto-pass due to timeout\n", tname);
@@ -470,11 +580,44 @@ void send_your_turn(int client_idx) {
 void broadcast_game_over() {
     server_state = SERVER_GAME_OVER;
 
+    // ✅ 수정: countPieces 강제 호출로 정확한 카운트 얻기
+    countPieces(&game_board);
+    
+    // ✅ 수정: 직접 계산으로 검증
+    int manual_red = 0, manual_blue = 0, manual_empty = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            char cell = game_board.cells[i][j];  // ✅ cells 필드 사용
+            if (cell == RED_PLAYER) manual_red++;
+            else if (cell == BLUE_PLAYER) manual_blue++;
+            else if (cell == EMPTY_CELL) manual_empty++;
+        }
+    }
+    
+    printf("[DEBUG] countPieces result: R=%d, B=%d, Empty=%d\n", 
+           game_board.redCount, game_board.blueCount, game_board.emptyCount);
+    printf("[DEBUG] Manual count: R=%d, B=%d, Empty=%d, Total=%d\n", 
+           manual_red, manual_blue, manual_empty, manual_red + manual_blue + manual_empty);
+
     const char *players[2] = {clients[0].username, clients[1].username};
-    int scores[2] = {game_board.redCount, game_board.blueCount};
+    int scores[2];
+    
+    // 검증 후 올바른 값 사용
+    if (manual_red + manual_blue + manual_empty == 64) {
+        scores[0] = manual_red;
+        scores[1] = manual_blue;
+        printf("[Server] Using manual count (Total=64 ✓)\n");
+    } else {
+        // 만약 수동 계산도 이상하다면 countPieces 결과 사용
+        scores[0] = game_board.redCount;
+        scores[1] = game_board.blueCount;
+        printf("[Server] Using countPieces result (Manual total=%d)\n", 
+               manual_red + manual_blue + manual_empty);
+    }
 
     JsonValue *game_over_msg = createGameOverMessage(players, scores);
     char *json_str = json_stringify(game_over_msg);
+    
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket != -1) {
             send(clients[i].socket, json_str, strlen(json_str), 0);
@@ -483,18 +626,21 @@ void broadcast_game_over() {
     }
     free(json_str); json_free(game_over_msg);
 
-    if (game_board.redCount > game_board.blueCount) {
+    if (scores[0] > scores[1]) {
         printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
-               clients[0].username, game_board.redCount, game_board.blueCount);
-    } else if (game_board.blueCount > game_board.redCount) {
+               clients[0].username, scores[0], scores[1]);
+    } else if (scores[1] > scores[0]) {
         printf("[Server] Game over: %s wins! (R=%d, B=%d)\n",
-               clients[1].username, game_board.redCount, game_board.blueCount);
+               clients[1].username, scores[0], scores[1]);
     } else {
         printf("[Server] Game over: Draw! (R=%d, B=%d)\n",
-               game_board.redCount, game_board.blueCount);
-    }cleanup_and_exit(0);
+               scores[0], scores[1]);
+    }
+    
+    printf("[Server] Waiting for clients to receive final messages...\n");
+    sleep(2);
+    cleanup_and_exit(0);
 }
-
 // 클라이언트 메시지 처리
 void handle_client_message(int client_idx, char *buffer) {
     printf("클라이언트 %d로부터 메시지: %s\n", client_idx, buffer);
@@ -530,6 +676,11 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
     struct sockaddr_in address;
     int addrlen = sizeof(address);
     
+    // 명령줄 인자 파싱
+    if (parse_arguments(argc, argv) != 0) {
+        return EXIT_FAILURE;
+    }
+    
     // 시그널 핸들러 설정
     signal(SIGINT, cleanup_and_exit);
     signal(SIGTERM, cleanup_and_exit);
@@ -539,7 +690,7 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
         clients[i].socket = -1;
         memset(clients[i].username, 0, sizeof(clients[i].username));
     }
-    
+     init_client_buffers();
     // 게임 보드 초기화
     initializeBoard(&game_board);
     
@@ -556,14 +707,25 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
         exit(EXIT_FAILURE);
     }
     
-    // 주소 설정
+    // 주소 설정 (수정됨)
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
+    
+    // IP 주소 설정
+    if (strcmp(server_ip, "0.0.0.0") == 0) {
+        address.sin_addr.s_addr = INADDR_ANY;  // 모든 인터페이스
+    } else {
+        if (inet_pton(AF_INET, server_ip, &address.sin_addr) <= 0) {
+            fprintf(stderr, "Error: IP 주소 변환 실패: %s\n", server_ip);
+            exit(EXIT_FAILURE);
+        }
+    }
+    
+    address.sin_port = htons(server_port);  // 포트 설정
     
     // 바인딩
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
+        printf("Failed to bind to %s:%d\n", server_ip, server_port);
         exit(EXIT_FAILURE);
     }
     
@@ -573,7 +735,10 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
         exit(EXIT_FAILURE);
     }
     
-    printf("OctaFlip 서버가 포트 %d에서 시작되었습니다.\n", PORT);
+    // 서버 시작 메시지 (수정됨)
+    printf("OctaFlip 서버가 %s:%d에서 시작되었습니다.\n", 
+           strcmp(server_ip, "0.0.0.0") == 0 ? "모든 인터페이스" : server_ip, 
+           server_port);
     
     char buffer[BUFFER_SIZE];
     
@@ -645,13 +810,14 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
         }
         
         // 클라이언트 메시지 확인
-        for (int i = 1; i <= MAX_CLIENTS && i < nfds; i++) {
+                for (int i = 1; i <= MAX_CLIENTS && i < nfds; i++) {
             if (fds[i].fd != -1 && (fds[i].revents & POLLIN)) {
                 // 클라이언트로부터 데이터 읽기
-                int valread = read(fds[i].fd, buffer, BUFFER_SIZE - 1);
+                char temp_buffer[BUFFER_SIZE];
+                int valread = read(fds[i].fd, temp_buffer, BUFFER_SIZE - 1);
                 
                 if (valread > 0) {
-                    buffer[valread] = '\0';
+                    temp_buffer[valread] = '\0';
                     
                     // 해당 클라이언트 인덱스 찾기
                     int client_idx = -1;
@@ -663,11 +829,24 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
                     }
                     
                     if (client_idx != -1) {
-                        handle_client_message(client_idx, buffer);
+                        // 청크 단위로 받은 데이터 처리
+                        process_client_data(client_idx, temp_buffer, valread);
                     }
                 } else {
                     // 연결 종료 또는 오류
                     handle_client_disconnect(fds[i].fd);
+                    
+                    // 해당 클라이언트의 버퍼도 초기화
+                    int disconnected_idx = -1;
+                    for (int j = 0; j < MAX_CLIENTS; j++) {
+                        if (clients[j].socket == fds[i].fd) {
+                            disconnected_idx = j;
+                            break;
+                        }
+                    }
+                    if (disconnected_idx != -1) {
+                        memset(&client_buffers[disconnected_idx], 0, sizeof(ClientBuffer));
+                    }
                     
                     // poll 배열에서 제거
                     fds[i].fd = -1;

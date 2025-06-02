@@ -146,6 +146,7 @@ void handle_client_disconnect(int socket_fd) {
         server_state = SERVER_WAITING_PLAYERS;
         initializeBoard(&game_board);
         current_player_idx = 0;
+        cleanup_and_exit(0);
     }
 }
 
@@ -491,7 +492,7 @@ void broadcast_game_over() {
     } else {
         printf("[Server] Game over: Draw! (R=%d, B=%d)\n",
                game_board.redCount, game_board.blueCount);
-    }
+    }cleanup_and_exit(0);
 }
 
 // 클라이언트 메시지 처리
@@ -521,6 +522,7 @@ void handle_client_message(int client_idx, char *buffer) {
     }
     
     json_free(json_obj);
+   
 }
 
 int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {

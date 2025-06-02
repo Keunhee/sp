@@ -502,8 +502,7 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         .targetCol = move.targetCol - 1
     };
 
-    // --- 일반 이동 유효성 검사 ---
-    if (!isValidMove(&game_board, &adjusted_move)) {
+      if (!isValidMove(&game_board, &adjusted_move)) {
         printf("[Server] Invalid move by %s: (%d,%d)->(%d,%d) [internal: (%d,%d)->(%d,%d)]\n",
                clients[client_idx].username,
                original_move.sourceRow, original_move.sourceCol,
@@ -511,11 +510,18 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
                adjusted_move.sourceRow, adjusted_move.sourceCol,
                adjusted_move.targetRow, adjusted_move.targetCol);
 
-        JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
+        // ✅ 수정: invalid_move 후 턴을 다음 플레이어로 넘김
+        int next_idx = (current_player_idx + 1) % MAX_CLIENTS;
+        
+        JsonValue *inv = createInvalidMoveMessage(&game_board, clients[next_idx].username);
         char *inv_str = json_stringify(inv);
         send(clients[client_idx].socket, inv_str, strlen(inv_str), 0);
         send(clients[client_idx].socket, "\n", 1, 0);
         free(inv_str); json_free(inv);
+
+        // ✅ 실제로 턴을 다음 플레이어로 변경
+        current_player_idx = next_idx;
+        send_your_turn(current_player_idx);
 
         free(username);
         return;
@@ -536,7 +542,7 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
     printf("[Server] Score: R=%d, B=%d, Empty=%d\n", 
            game_board.redCount, game_board.blueCount, game_board.emptyCount);
 
-    // ✅ 다음 플레이어 결정 (게임 종료 확인 전에)
+    // ✅ 다음 플레이어 결정
     int next_idx = (current_player_idx + 1) % MAX_CLIENTS;
     
     // ✅ 게임 종료 확인
@@ -557,7 +563,7 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         printf("[Server] move_ok sent (game ended). Broadcasting game_over...\n");
         broadcast_game_over();
     } else {
-        // ✅ 게임 계속 시에는 정확한 다음 플레이어와 함께 move_ok 전송
+        // ✅ 게임 계속: move_ok의 next_player와 실제 턴 변경이 일치하도록 수정
         JsonValue *ok = createMoveOkMessage(&game_board, clients[next_idx].username);
         char *ok_str = json_stringify(ok);
         if (clients[current_player_idx].socket != -1) {
@@ -566,17 +572,18 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         }
         free(ok_str); json_free(ok);
 
-        printf("[Server] move_ok sent to all clients. Next player: %s\n", 
-               clients[next_idx].username);
+        printf("[Server] move_ok sent with next_player: %s\n", clients[next_idx].username);
 
-        // 다음 턴으로 이동
+        // ✅ 실제 턴을 다음 플레이어로 변경
         current_player_idx = next_idx;
         send_your_turn(current_player_idx);
+        
+        printf("[Server] Turn switched to: %s (index: %d)\n", 
+               clients[current_player_idx].username, current_player_idx);
     }
 
     free(username);
 }
-
 void broadcast_game_start() {
     server_state = SERVER_GAME_IN_PROGRESS;
 
@@ -932,4 +939,5 @@ int main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
     
     return 0;
 }
+
 

@@ -312,37 +312,17 @@ void check_timeout() {
     if (elapsed > TIMEOUT_SEC) {
         const char *tname = clients[current_player_idx].username;
         printf("[Server] %s timed out (%.2f sec). Forcing turn change.\n", tname, elapsed);
-
-        // ✅ 타임아웃 시 적절한 feedback 제공
-        if (hasValidMove(&game_board, clients[current_player_idx].color)) {
-            // 유효한 수가 있는데 타임아웃 → invalid_move
-            printf("[Server] %s has valid moves but timed out → invalid_move\n", tname);
-            JsonValue *inv = createInvalidMoveMessage(&game_board, clients[current_player_idx].username);
-            char *inv_str = json_stringify(inv);
-            
-            if (clients[current_player_idx].socket != -1) {
-                send(clients[current_player_idx].socket, inv_str, strlen(inv_str), 0);
-                send(clients[current_player_idx].socket, "\n", 1, 0);
-            }
-            free(inv_str); 
-            json_free(inv);
-        } else {
-            // 유효한 수가 없어서 자동 패스
-            printf("[Server] %s has no valid moves → auto-pass due to timeout\n", tname);
-            game_board.consecutivePasses++;
-            
-            // ✅ 연결된 클라이언트들에게만 패스 메시지 전송
-            JsonValue *pass_msg = createPassMessage(clients[current_player_idx].username);
-            char *pass_str = json_stringify(pass_msg);
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i].socket != -1) {
-                    send(clients[i].socket, pass_str, strlen(pass_str), 0);
-                    send(clients[i].socket, "\n", 1, 0);
-                }
-            }
-            free(pass_str); 
-            json_free(pass_msg);
+        game_board.consecutivePasses++;
+        
+        // ✅ 연결된 클라이언트들에게만 패스 메시지 전송
+        JsonValue *pass_msg = createPassMessage(clients[current_player_idx].username);
+        char *pass_str = json_stringify(pass_msg);
+        if (clients[current_player_idx].socket != -1) {
+            send(clients[current_player_idx].socket, pass_str, strlen(pass_str), 0);
+            send(clients[current_player_idx].socket, "\n", 1, 0);
         }
+        free(pass_str); 
+        json_free(pass_msg);
 
         // 게임 종료 확인
         if (game_board.consecutivePasses >= 2 || hasGameEnded(&game_board)) {

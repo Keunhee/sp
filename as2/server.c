@@ -568,11 +568,9 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         // ✅ 게임 종료 시에는 next_player를 null로 설정한 move_ok 전송
         JsonValue *ok = createMoveOkMessage(&game_board, NULL);  // next_player = null
         char *ok_str = json_stringify(ok);
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].socket != -1) {
-                send(clients[i].socket, ok_str, strlen(ok_str), 0);
-                send(clients[i].socket, "\n", 1, 0);
-            }
+        if (clients[current_player_idx].socket != -1) {
+            send(clients[current_player_idx].socket, ok_str, strlen(ok_str), 0);
+            send(clients[current_player_idx].socket, "\n", 1, 0);
         }
         free(ok_str); json_free(ok);
         
@@ -582,11 +580,9 @@ void handle_move_message(int client_idx, JsonValue *json_obj) {
         // ✅ 게임 계속 시에는 정확한 다음 플레이어와 함께 move_ok 전송
         JsonValue *ok = createMoveOkMessage(&game_board, clients[next_idx].username);
         char *ok_str = json_stringify(ok);
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].socket != -1) {
-                send(clients[i].socket, ok_str, strlen(ok_str), 0);
-                send(clients[i].socket, "\n", 1, 0);
-            }
+        if (clients[current_player_idx].socket != -1) {
+            send(clients[current_player_idx].socket, ok_str, strlen(ok_str), 0);
+            send(clients[current_player_idx].socket, "\n", 1, 0);
         }
         free(ok_str); json_free(ok);
 

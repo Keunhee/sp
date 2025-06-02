@@ -32,7 +32,13 @@ typedef struct {
     int targetCol;
     char player;
 } Move;
-
+int count_player_pieces_asm(
+    const char *board,
+    unsigned char target,
+    int rows,
+    int cols,
+    size_t stride
+);
 // 보드 초기화 함수
 void initializeBoard(GameBoard *board);
 

@@ -109,11 +109,18 @@ JsonValue* createMoveOkMessage(const GameBoard *board, const char *nextPlayer) {
     }
     
     json_object_set(root, "board", boardArray);
-    json_object_set(root, "next_player", json_string(nextPlayer));
+    
+    // ✅ next_player가 NULL이면 (게임 종료) null 값 설정
+    if (nextPlayer != NULL) {
+        json_object_set(root, "next_player", json_string(nextPlayer));
+    } else {
+        json_object_set(root, "next_player", json_null());
+    }
     
     return root;
 }
 
+// 서버 -> 클라이언트: 유효하지 않은 이동 메시지 생성
 // 서버 -> 클라이언트: 유효하지 않은 이동 메시지 생성
 JsonValue* createInvalidMoveMessage(const GameBoard *board, const char *nextPlayer) {
     JsonValue *root = json_object();
@@ -127,11 +134,16 @@ JsonValue* createInvalidMoveMessage(const GameBoard *board, const char *nextPlay
     }
     
     json_object_set(root, "board", boardArray);
-    json_object_set(root, "next_player", json_string(nextPlayer));
+    
+    // ✅ next_player가 NULL이면 null 값 설정
+    if (nextPlayer != NULL) {
+        json_object_set(root, "next_player", json_string(nextPlayer));
+    } else {
+        json_object_set(root, "next_player", json_null());
+    }
     
     return root;
 }
-
 // 서버 -> 클라이언트: 패스 메시지 생성
 JsonValue* createPassMessage(const char *nextPlayer) {
     JsonValue *root = json_object();
@@ -307,21 +319,24 @@ int parseYourTurnMessage(JsonValue *jsonValue, GameBoard *board, double *timeout
 }
 
 // 이동 결과 메시지 파싱 (move_ok, invalid_move, pass)
+// 이동 결과 메시지 파싱 (move_ok, invalid_move, pass)
 int parseMoveResultMessage(JsonValue *jsonValue, GameBoard *board, char *nextPlayer) {
     JsonValue *nextPlayerValue = json_object_get(jsonValue, "next_player");
     JsonValue *boardValue = json_object_get(jsonValue, "board");
     
-    if (!json_is_string(nextPlayerValue)) {
-        return 0;
+    // ✅ next_player가 null일 수 있음 (게임 종료 시)
+    if (json_is_null(nextPlayerValue)) {
+        strcpy(nextPlayer, ""); // 빈 문자열로 설정
+    } else if (json_is_string(nextPlayerValue)) {
+        const char *next = json_string_value(nextPlayerValue);
+        if (!next) {
+            return 0;
+        }
+        strncpy(nextPlayer, next, 63);
+        nextPlayer[63] = '\0';
+    } else {
+        return 0; // next_player가 null도 string도 아니면 오류
     }
-    
-    const char *next = json_string_value(nextPlayerValue);
-    if (!next) {
-        return 0;
-    }
-    
-    strncpy(nextPlayer, next, 63);
-    nextPlayer[63] = '\0';
     
     // 보드가 있는 경우에만 파싱 (pass 메시지에는 보드가 없을 수 있음)
     if (json_is_array(boardValue) && json_array_size(boardValue) == BOARD_SIZE) {

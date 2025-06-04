@@ -277,7 +277,14 @@ void handle_server_message(char *buffer) {
             char nextPlayer[64];
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard)); // 로컬 보드 동기화
-                printf("[Client] Received move_ok.\n");
+                printf("[Client] Received move_ok. Board updated:\n");
+                printBoard(&game_board);
+                
+                // LED 매트릭스 업데이트 (과제 요구사항: 이동 완료 후 즉시 반영)
+                if (led_enabled) {
+                    printf("[LED] 이동 완료 - LED 패널을 업데이트합니다.\n");
+                    drawBoardOnLED(&game_board);
+                }
                 
                 if (strcmp(nextPlayer, my_username) == 0) {
                     printf("[Client] It's your turn next.\n");
@@ -295,7 +302,14 @@ void handle_server_message(char *buffer) {
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard));
             }
-            printf("[Client] Opponent passed.\n");
+            printf("[Client] Opponent passed. Board now:\n");
+            printBoard(&game_board);
+            
+            // LED 매트릭스 업데이트 (과제 요구사항: 패스 후에도 보드 상태 갱신)
+            if (led_enabled) {
+                printf("[LED] 상대방 패스 - LED 패널을 업데이트합니다.\n");
+                drawBoardOnLED(&game_board);
+            }
             break;
         }
         

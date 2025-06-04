@@ -30,7 +30,7 @@ ensure_lib_links:
 
 # 클린 타겟
 clean:
-	rm -f *.o server client client_as2
+	rm -f *.o server client board_alone
 	rm -f librgbmatrix.so.1 # <-- clean 시 링크도 지우도록 추가
 
 # 실행 테스트 (LD_LIBRARY_PATH로 .so를 런타임에 인식시킴)
@@ -38,7 +38,7 @@ run_client:
 	LD_LIBRARY_PATH=. ./client -ip 127.0.0.1 -port 8888 -username Player1 -led
 
 # 종속성
-client.o: client.c json.h message_handler.h board.h ai_engine.h
+client.o: client.c json.h message_handler.h board.h ai_engine.h winning_strategy.h
 board.o: board.c board.h
 json.o: json.c json.h
 message_handler.o: message_handler.c message_handler.h json.h board.h

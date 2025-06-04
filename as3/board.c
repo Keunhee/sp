@@ -394,7 +394,7 @@ int main() {
         board.cells[i][BOARD_SIZE] = '\0';
     }
     for(int i = 0; i < 8; i++) {
-        if (scanf("%s", board.cells[i]) != 1) {
+        if (scanf("%8s", board.cells[i]) != 1) {
             printf("Invalid input\n");
             return 0;
         }

@@ -244,6 +244,9 @@ void handle_server_message(char *buffer) {
                     printf("[Client] Sending Move: (%d,%d)->(%d,%d)\n", sR, sC, tR, tC);
                 }
 
+                printf("[Client] Board after move generation (예상):\n");
+                printBoard(&game_board);
+
                 send_move_message(&move);  // 내부에서 "JSON + '\n'" 전송됨
                 client_state = CLIENT_WAITING;
             }
@@ -256,7 +259,8 @@ void handle_server_message(char *buffer) {
             char nextPlayer[64];
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard)); // 로컬 보드 동기화
-                printf("[Client] Received move_ok.\n");
+                printf("[Client] Received move_ok. Board updated:\n");
+                printBoard(&game_board);
                 
                 if (strcmp(nextPlayer, my_username) == 0) {
                     printf("[Client] It's your turn next.\n");
@@ -274,7 +278,8 @@ void handle_server_message(char *buffer) {
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard));
             }
-            printf("[Client] Opponent passed.\n");
+            printf("[Client] Opponent passed. Board now:\n");
+            printBoard(&game_board);
             break;
         }
         

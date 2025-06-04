@@ -302,15 +302,7 @@ void handle_server_message(char *buffer) {
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard));
             }
-            printf("[Client] Opponent passed. Board now:\n");
-            printBoard(&game_board);
-            
-            // LED 매트릭스 업데이트 (과제 요구사항: 패스 후에도 보드 상태 갱신)
-            if (led_enabled) {
-                printf("[LED] 상대방 패스 - LED 패널을 업데이트합니다.\n");
-                drawBoardOnLED(&game_board);
-            }
-            break;
+            printf("[Client] Opponent passed.\n");
         }
         
         case MSG_GAME_OVER: {

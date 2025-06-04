@@ -278,8 +278,7 @@ void handle_server_message(char *buffer) {
             if (parseMoveResultMessage(json_obj, &updated_board, nextPlayer)) {
                 memcpy(&game_board, &updated_board, sizeof(GameBoard));
             }
-            printf("[Client] Opponent passed. Board now:\n");
-            printBoard(&game_board);
+            printf("[Client] Opponent passed.\n");
             break;
         }
         

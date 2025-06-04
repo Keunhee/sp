@@ -412,7 +412,7 @@ int main() {
     }
     ledMatrixInit();
     drawBoardOnLED(&board);
-    sleep 3;
+    sleep(3);
     ledMatrixClose();
     return 0;
 }

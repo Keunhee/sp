@@ -410,7 +410,6 @@ int main() {
             exit(0);
         }   
     }
-    printBoard(&board);
     drawBoardOnLED(&board);
     return 0;
 }

@@ -6,6 +6,14 @@
 #include <stdbool.h>
 
 #if defined(__aarch64__)
+// WARNING: The aarch64 assembly version of evaluateBoard below uses a simpler
+// evaluation based only on positional weights. It does NOT correctly handle
+// BLOCKED_CELLs (it may misinterpret them depending on its logic focused only on
+// player/opponent pieces vs empty for its positional calculation) and does not
+// include piece count, full mobility (blocked cell aware), stability (blocked cell
+// aware), or game phase specific evaluation. For improved AI, this should
+// ideally be updated to match the logic in the C versions, or a C fallback
+// should be used.
 // ------------------------------
 // 취급주의 어셈블리 건들이지말것
 // ------------------------------
@@ -32,7 +40,7 @@ bool isCorner(int r, int c) {
     return result;
 }
 
-int evaluateBoard(const GameBoard *board, char player) {
+int evaluateBoard(const GameBoard *board, char player, int game_phase) {
     int player_score = 0;
     int opponent_score = 0;
     char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
@@ -85,23 +93,57 @@ bool isCorner(int r, int c) {
 }
 
 
-int evaluateBoard(const GameBoard *board, char player) {
-    int player_score = 0;
-    int opponent_score = 0;
+int evaluateBoard(const GameBoard *board, char player, int game_phase) {
     char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
+    int positional_player_score = 0;
+    int positional_opponent_score = 0;
+
+    int current_piece_weight;
+    int current_mobility_weight;
+    int current_stability_weight;
+    int current_positional_factor;
+
+    if (game_phase == PHASE_EARLY) {
+        current_piece_weight = PIECE_COUNT_WEIGHT_EARLY;
+        current_mobility_weight = MOBILITY_WEIGHT_EARLY;
+        current_stability_weight = STABILITY_WEIGHT_EARLY;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_EARLY;
+    } else if (game_phase == PHASE_MID) {
+        current_piece_weight = PIECE_COUNT_WEIGHT_MID;
+        current_mobility_weight = MOBILITY_WEIGHT_MID;
+        current_stability_weight = STABILITY_WEIGHT_MID;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_MID;
+    } else { // PHASE_LATE
+        current_piece_weight = PIECE_COUNT_WEIGHT_LATE;
+        current_mobility_weight = MOBILITY_WEIGHT_LATE;
+        current_stability_weight = STABILITY_WEIGHT_LATE;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_LATE;
+    }
 
     for (int r = 0; r < BOARD_SIZE; r++) {
         for (int c = 0; c < BOARD_SIZE; c++) {
             char cell = board->cells[r][c];
             short weight = POSITION_WEIGHTS[r][c];
             if (cell == player) {
-                player_score += weight;
+                positional_player_score += weight;
             } else if (cell == opponent) {
-                opponent_score += weight;
+                positional_opponent_score += weight;
             }
         }
     }
-    return player_score - opponent_score;
+    int positional_value = (positional_player_score - positional_opponent_score) * current_positional_factor;
+
+    int my_pieces = (player == RED_PLAYER) ? board->redCount : board->blueCount;
+    int opp_pieces = (player == RED_PLAYER) ? board->blueCount : board->redCount;
+    int piece_diff_score = (my_pieces - opp_pieces) * current_piece_weight;
+
+    int my_mobility = getMobility(board, player);
+    int opponent_mobility = getMobility(board, opponent);
+    int mobility_score = (my_mobility - opponent_mobility) * current_mobility_weight;
+
+    int stability_score = getStability(board, player) * current_stability_weight; // Only player's stability considered for now
+
+    return positional_value + piece_diff_score + mobility_score + stability_score;
 }
 
 #else
@@ -112,23 +154,57 @@ bool isCorner(int r, int c) {
     return (r == 0 || r == BOARD_SIZE - 1) && (c == 0 || c == BOARD_SIZE - 1);
 }
 
-int evaluateBoard(const GameBoard *board, char player) {
-    int player_score = 0;
-    int opponent_score = 0;
+int evaluateBoard(const GameBoard *board, char player, int game_phase) {
     char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
+    int positional_player_score = 0;
+    int positional_opponent_score = 0;
+
+    int current_piece_weight;
+    int current_mobility_weight;
+    int current_stability_weight;
+    int current_positional_factor;
+
+    if (game_phase == PHASE_EARLY) {
+        current_piece_weight = PIECE_COUNT_WEIGHT_EARLY;
+        current_mobility_weight = MOBILITY_WEIGHT_EARLY;
+        current_stability_weight = STABILITY_WEIGHT_EARLY;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_EARLY;
+    } else if (game_phase == PHASE_MID) {
+        current_piece_weight = PIECE_COUNT_WEIGHT_MID;
+        current_mobility_weight = MOBILITY_WEIGHT_MID;
+        current_stability_weight = STABILITY_WEIGHT_MID;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_MID;
+    } else { // PHASE_LATE
+        current_piece_weight = PIECE_COUNT_WEIGHT_LATE;
+        current_mobility_weight = MOBILITY_WEIGHT_LATE;
+        current_stability_weight = STABILITY_WEIGHT_LATE;
+        current_positional_factor = POSITIONAL_WEIGHT_FACTOR_LATE;
+    }
 
     for (int r = 0; r < BOARD_SIZE; r++) {
         for (int c = 0; c < BOARD_SIZE; c++) {
             char cell = board->cells[r][c];
             short weight = POSITION_WEIGHTS[r][c];
             if (cell == player) {
-                player_score += weight;
+                positional_player_score += weight;
             } else if (cell == opponent) {
-                opponent_score += weight;
+                positional_opponent_score += weight;
             }
         }
     }
-    return player_score - opponent_score;
+    int positional_value = (positional_player_score - positional_opponent_score) * current_positional_factor;
+
+    int my_pieces = (player == RED_PLAYER) ? board->redCount : board->blueCount;
+    int opp_pieces = (player == RED_PLAYER) ? board->blueCount : board->redCount;
+    int piece_diff_score = (my_pieces - opp_pieces) * current_piece_weight;
+
+    int my_mobility = getMobility(board, player);
+    int opponent_mobility = getMobility(board, opponent);
+    int mobility_score = (my_mobility - opponent_mobility) * current_mobility_weight;
+
+    int stability_score = getStability(board, player) * current_stability_weight; // Only player's stability considered for now
+
+    return positional_value + piece_diff_score + mobility_score + stability_score;
 }
 #endif
 
@@ -142,221 +218,275 @@ short POSITION_WEIGHTS[BOARD_SIZE][BOARD_SIZE] = {
     {-20, -40, -5, -5, -5, -5, -40, -20},
     {100, -20, 20, 5, 5, 20, -20, 100}
 };
-// Zobrist 해시용 랜덤 테이블
+
 static unsigned long long zobrist_table[BOARD_SIZE][BOARD_SIZE][3];
 static int zobrist_initialized = 0;
 
-// Zobrist 해시 테이블 초기화
-void initZobrist() {
-    if (zobrist_initialized) return;
-    
-    srand(12345); // 고정 시드로 일관성 보장
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            for (int k = 0; k < 3; k++) {
-                zobrist_table[i][j][k] = 
-                    ((unsigned long long)rand() << 32) | rand();
+void initZobrist(void) {
+    if (zobrist_initialized) goto END_INIT;
+    srand(12345);
+    {
+        int i = 0;
+I_CHECK:
+        if (i >= BOARD_SIZE) goto DONE_I;
+        {
+            int j = 0;
+J_CHECK:
+            if (j >= BOARD_SIZE) goto NEXT_I;
+            {
+                int k = 0;
+K_CHECK:
+                if (k >= 3) goto NEXT_J;
+                zobrist_table[i][j][k] = (((unsigned long long)rand() << 32) | rand());
+                k++;
+                goto K_CHECK;
+NEXT_J:
+                ;
             }
+            j++;
+            goto J_CHECK;
+NEXT_I:
+            ;
         }
+        i++;
+        goto I_CHECK;
+DONE_I:
+        zobrist_initialized = 1;
     }
-    zobrist_initialized = 1;
+END_INIT:
+    return;
 }
 
-// AI 엔진 생성
-AIEngine* createAIEngine() {
-    AIEngine *engine = malloc(sizeof(AIEngine));
-    if (!engine) return NULL;
-    
-    engine->transposition_table = calloc(TRANSPOSITION_TABLE_SIZE, sizeof(TTEntry));
-    if (!engine->transposition_table) {
-        free(engine);
-        return NULL;
-    }
-    
+AIEngine *createAIEngine(void) {
+    AIEngine *engine = NULL;
+    goto ALLOC_ENGINE;
+
+ALLOC_ENGINE:
+    engine = (AIEngine *)malloc(sizeof(AIEngine));
+    if (!engine) goto FAIL;
+    engine->transposition_table = NULL;
     engine->nodes_searched = 0;
     engine->time_limit_exceeded = 0;
-    
+    goto ALLOC_TT;
+
+ALLOC_TT:
+    engine->transposition_table = (TTEntry *)calloc(TRANSPOSITION_TABLE_SIZE, sizeof(TTEntry));
+    if (!engine->transposition_table) goto FREE_ENGINE;
     initZobrist();
-    
+    goto SUCCESS;
+
+FREE_ENGINE:
+    free(engine);
+    engine = NULL;
+    goto FAIL;
+
+SUCCESS:
     return engine;
-}
 
-// AI 엔진 해제
-void destroyAIEngine(AIEngine *engine) {
-    if (engine) {
-        if (engine->transposition_table) {
-            free(engine->transposition_table);
-        }
-        free(engine);
-    }
-}
-
-// 시간 초과 확인
-int isTimeUp(AIEngine *engine) {
-    if (engine->time_limit_exceeded) return 1;
-    
-    clock_t current = clock();
-    double elapsed = ((double)(current - engine->start_time)) / CLOCKS_PER_SEC;
-    
-    if (elapsed >= TIME_LIMIT) {
-        engine->time_limit_exceeded = 1;
-        return 1;
-    }
-    return 0;
-}
-
-// 보드 해시 계산
-unsigned long long calculateHash(const GameBoard *board) {
-    unsigned long long hash = 0;
-    
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            int piece_type = 0;
-            if (board->cells[i][j] == RED_PLAYER) piece_type = 1;
-            else if (board->cells[i][j] == BLUE_PLAYER) piece_type = 2;
-            
-            hash ^= zobrist_table[i][j][piece_type];
-        }
-    }
-    
-    return hash;
-}
-
-// Transposition Table에 저장
-void storeInTT(AIEngine *engine, unsigned long long hash, int depth, int value, 
-               Move move, char flag) {
-    int index = hash % TRANSPOSITION_TABLE_SIZE;
-    TTEntry *entry = &engine->transposition_table[index];
-    
-    // 더 깊은 탐색이거나 새로운 엔트리일 때만 저장
-    if (entry->hash == 0 || entry->depth <= depth) {
-        entry->hash = hash;
-        entry->depth = depth;
-        entry->value = value;
-        entry->best_move = move;
-        entry->flag = flag;
-    }
-}
-
-// Transposition Table에서 조회
-TTEntry* lookupTT(AIEngine *engine, unsigned long long hash) {
-    int index = hash % TRANSPOSITION_TABLE_SIZE;
-    TTEntry *entry = &engine->transposition_table[index];
-    
-    if (entry->hash == hash) {
-        return entry;
-    }
+FAIL:
     return NULL;
 }
 
-// 코너 위치 확인
+void destroyAIEngine(AIEngine *engine) {
+    if (!engine) goto END_DESTROY;
 
+    if (engine->transposition_table) free(engine->transposition_table);
+    goto FREE_ENGINE;
 
-// 가장자리 위치 확인
-int isEdge(int row, int col) {
-    return row == 0 || row == BOARD_SIZE-1 || col == 0 || col == BOARD_SIZE-1;
+FREE_ENGINE:
+    free(engine);
+END_DESTROY:
+    return;
 }
 
-// 이동성(mobility) 계산 - 가능한 이동 수
+int isTimeUp(AIEngine *engine) {
+    if (engine->time_limit_exceeded) goto TIMEUP;
+    {
+        clock_t now = clock();
+        double elapsed = ((double)(now - engine->start_time)) / CLOCKS_PER_SEC;
+        if (elapsed >= TIME_LIMIT) {
+            engine->time_limit_exceeded = 1;
+            goto TIMEUP;
+        }
+    }
+    return 0;
+TIMEUP:
+    return 1;
+}
+
+unsigned long long calculateHash(const GameBoard *board) {
+    unsigned long long hash = 0ULL;
+    int r = 0;
+R_CHECK:
+    if (r >= BOARD_SIZE) goto HASH_DONE;
+    {
+        int c = 0;
+C_CHECK:
+        if (c >= BOARD_SIZE) goto NEXT_R;
+        {
+            int piece_type = 0;
+            if (board->cells[r][c] == RED_PLAYER) piece_type = 1;
+            else if (board->cells[r][c] == BLUE_PLAYER) piece_type = 2;
+            hash ^= zobrist_table[r][c][piece_type];
+        }
+        c++;
+        goto C_CHECK;
+NEXT_R:
+        ;
+    }
+    r++;
+    goto R_CHECK;
+HASH_DONE:
+    return hash;
+}
+
+void storeInTT(AIEngine *engine, unsigned long long hash, int depth, int value, Move move, char flag) {
+    int index = hash % TRANSPOSITION_TABLE_SIZE;
+    TTEntry *entry = &engine->transposition_table[index];
+    if (entry->hash == 0ULL) goto WRITE;
+    if (entry->depth > depth) goto END_STORE;
+WRITE:
+    entry->hash = hash;
+    entry->depth = depth;
+    entry->value = value;
+    entry->best_move = move;
+    entry->flag = flag;
+END_STORE:
+    return;
+}
+
+TTEntry *lookupTT(AIEngine *engine, unsigned long long hash) {
+    TTEntry *entry = &engine->transposition_table[hash % TRANSPOSITION_TABLE_SIZE];
+    if (entry->hash == hash) goto FOUND;
+    return NULL;
+FOUND:
+    return entry;
+}
+
+int isEdge(int row, int col) {
+    return (row == 0 || row == BOARD_SIZE - 1 || col == 0 || col == BOARD_SIZE - 1);
+}
+
 int getMobility(const GameBoard *board, char player) {
     int mobility = 0;
-    
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            if (board->cells[r][c] != player) continue;
-            
-            for (int d = 0; d < 8; d++) {
-                for (int s = 1; s <= 2; s++) {
+    int r = 0;
+R_CHECK_MOB:
+    if (r >= BOARD_SIZE) goto MOB_DONE;
+    {
+        int c = 0;
+C_CHECK_MOB:
+        if (c >= BOARD_SIZE) goto NEXT_R_MOB;
+        if (board->cells[r][c] != player) goto NEXT_C_MOB;
+        {
+            int d = 0;
+D_CHECK_MOB:
+            if (d >= 8) goto END_D_MOB;
+            {
+                int s = 1;
+S_CHECK_MOB:
+                if (s > 2) goto NEXT_D_MOB;
+                {
                     int nr = r + dRow[d] * s;
                     int nc = c + dCol[d] * s;
-                    
-                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
-                    
+                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) goto INC_S_MOB;
                     if (s == 2) {
                         int mr = r + dRow[d];
                         int mc = c + dCol[d];
-                        if (board->cells[mr][mc] == RED_PLAYER || 
-                            board->cells[mr][mc] == BLUE_PLAYER) continue;
+                        if (board->cells[mr][mc] == RED_PLAYER || board->cells[mr][mc] == BLUE_PLAYER || board->cells[mr][mc] == BLOCKED_CELL) goto INC_S_MOB;
                     }
-                    
-                    if (board->cells[nr][nc] == EMPTY_CELL) {
-                        mobility++;
-                    }
+                    if (board->cells[nr][nc] == EMPTY_CELL) mobility++;
                 }
+INC_S_MOB:
+                s++;
+                goto S_CHECK_MOB;
+NEXT_D_MOB:
+                ;
             }
+            d++;
+            goto D_CHECK_MOB;
+END_D_MOB:
+            ;
         }
+NEXT_C_MOB:
+        c++;
+        goto C_CHECK_MOB;
+NEXT_R_MOB:
+        ;
     }
-    
+    r++;
+    goto R_CHECK_MOB;
+MOB_DONE:
     return mobility;
 }
 
-// 안정성(stability) 계산 - 뒤집히기 어려운 말들
 int getStability(const GameBoard *board, char player) {
     int stability = 0;
-    
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            if (board->cells[r][c] != player) continue;
-            
-            // 코너 말은 절대 안전
-            if (isCorner(r, c)) {
-                stability += 50;
-                continue;
-            }
-            
-            // 가장자리 말은 상대적으로 안전
-            if (isEdge(r, c)) {
-                stability += 20;
-                continue;
-            }
-            
-            // 주변이 모두 채워져 있으면 안전
+    int r = 0;
+R_CHECK_STAB:
+    if (r >= BOARD_SIZE) goto STAB_DONE;
+    {
+        int c = 0;
+C_CHECK_STAB:
+        if (c >= BOARD_SIZE) goto NEXT_R_STAB;
+        if (board->cells[r][c] != player) goto NEXT_C_STAB;
+        if (isCorner(r, c)) { stability += 50; goto NEXT_C_STAB; }
+        if (isEdge(r, c)) { stability += 20; goto NEXT_C_STAB; }
+        {
             int surrounded = 1;
-            for (int d = 0; d < 8; d++) {
+            int d = 0;
+D_CHECK_STAB:
+            if (d >= 8) goto AFTER_SURROUND;
+            {
                 int nr = r + dRow[d];
                 int nc = c + dCol[d];
-                
                 if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
-                    if (board->cells[nr][nc] == EMPTY_CELL) {
-                        surrounded = 0;
-                        break;
-                    }
+                    if (board->cells[nr][nc] == EMPTY_CELL) { surrounded = 0; goto AFTER_SURROUND; }
                 }
             }
-            
-            if (surrounded) {
-                stability += 10;
-            }
+            d++;
+            goto D_CHECK_STAB;
+AFTER_SURROUND:
+            if (surrounded) stability += 10;
         }
+NEXT_C_STAB:
+        c++;
+        goto C_CHECK_STAB;
+NEXT_R_STAB:
+        ;
     }
-    
+    r++;
+    goto R_CHECK_STAB;
+STAB_DONE:
     return stability;
 }
 
-
-
-// 모든 유효한 이동 생성
 void getAllValidMoves(const GameBoard *board, char player, Move *moves, int *count) {
     *count = 0;
-    
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            if (board->cells[r][c] != player) continue;
-            
-            for (int d = 0; d < 8; d++) {
-                for (int s = 1; s <= 2; s++) {
+    int r = 0;
+R_CHECK_VM:
+    if (r >= BOARD_SIZE) goto VM_DONE;
+    {
+        int c = 0;
+C_CHECK_VM:
+        if (c >= BOARD_SIZE) goto NEXT_R_VM;
+        if (board->cells[r][c] != player) goto NEXT_C_VM;
+        {
+            int d = 0;
+D_CHECK_VM:
+            if (d >= 8) goto END_D_VM;
+            {
+                int s = 1;
+S_CHECK_VM:
+                if (s > 2) goto NEXT_D_VM;
+                {
                     int nr = r + dRow[d] * s;
                     int nc = c + dCol[d] * s;
-                    
-                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
-                    
+                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) goto INC_S_VM;
                     if (s == 2) {
                         int mr = r + dRow[d];
                         int mc = c + dCol[d];
-                        if (board->cells[mr][mc] == RED_PLAYER || 
-                            board->cells[mr][mc] == BLUE_PLAYER) continue;
+                        if (board->cells[mr][mc] == RED_PLAYER || board->cells[mr][mc] == BLUE_PLAYER || board->cells[mr][mc] == BLOCKED_CELL) goto INC_S_VM;
                     }
-                    
                     if (board->cells[nr][nc] == EMPTY_CELL) {
                         moves[*count].player = player;
                         moves[*count].sourceRow = r;
@@ -366,25 +496,43 @@ void getAllValidMoves(const GameBoard *board, char player, Move *moves, int *cou
                         (*count)++;
                     }
                 }
+INC_S_VM:
+                s++;
+                goto S_CHECK_VM;
+NEXT_D_VM:
+                ;
             }
+            d++;
+            goto D_CHECK_VM;
+END_D_VM:
+            ;
         }
+NEXT_C_VM:
+        c++;
+        goto C_CHECK_VM;
+NEXT_R_VM:
+        ;
     }
+    r++;
+    goto R_CHECK_VM;
+VM_DONE:
+    return;
 }
 
 // Minimax with Alpha-Beta Pruning
 int minimax(AIEngine *engine, GameBoard *board, int depth, int alpha, int beta, 
-           char maximizing_player, char original_player) {
+           char maximizing_player, char original_player, int game_phase) {
     
     engine->nodes_searched++;
     
     // 시간 초과 확인
     if (isTimeUp(engine)) {
-        return evaluateBoard(board, original_player);
+        return evaluateBoard(board, original_player, game_phase);
     }
     
     // 터미널 노드 또는 최대 깊이 도달
     if (depth == 0 || hasGameEnded(board)) {
-        return evaluateBoard(board, original_player);
+        return evaluateBoard(board, original_player, game_phase);
     }
     
     // Transposition Table 조회
@@ -413,11 +561,11 @@ int minimax(AIEngine *engine, GameBoard *board, int depth, int alpha, int beta,
         int opp_count;
         getAllValidMoves(board, opponent, opp_moves, &opp_count);
         if (opp_count == 0) {
-            return evaluateBoard(board, original_player);
+            return evaluateBoard(board, original_player, game_phase);
         }
         
         // 상대 턴으로 넘어감
-        return minimax(engine, board, depth - 1, alpha, beta, opponent, original_player);
+        return minimax(engine, board, depth - 1, alpha, beta, opponent, original_player, game_phase);
     }
     
     Move best_move;
@@ -437,7 +585,7 @@ int minimax(AIEngine *engine, GameBoard *board, int depth, int alpha, int beta,
             applyMove(&temp_board, &moves[i]);
             
             char next_player = (maximizing_player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
-            int eval = minimax(engine, &temp_board, depth - 1, alpha, beta, next_player, original_player);
+            int eval = minimax(engine, &temp_board, depth - 1, alpha, beta, next_player, original_player, game_phase);
             
             if (eval > max_eval) {
                 max_eval = eval;
@@ -467,7 +615,7 @@ int minimax(AIEngine *engine, GameBoard *board, int depth, int alpha, int beta,
             applyMove(&temp_board, &moves[i]);
             
             char next_player = (maximizing_player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
-            int eval = minimax(engine, &temp_board, depth - 1, alpha, beta, next_player, original_player);
+            int eval = minimax(engine, &temp_board, depth - 1, alpha, beta, next_player, original_player, game_phase);
             
             if (eval < min_eval) {
                 min_eval = eval;
@@ -519,6 +667,31 @@ Move findBestMove(AIEngine *engine, const GameBoard *board, char player) {
         Move current_best = { 0 };  
         int current_best_value = NEG_INFINITY_VAL;
         
+        int current_game_phase = get_game_phase(&temp_board);
+
+        // Try to prioritize a killer move
+        Move killer_m = findKillerMove(&temp_board, player); // findKillerMove is from winning_strategy.h
+        if (isValidMove(&temp_board, &killer_m)) { // Check if a valid killer move was found
+            // Search for the killer move in the general moves list and bring it to the front
+            for (int k_idx = 0; k_idx < move_count; k_idx++) {
+                if (moves[k_idx].sourceRow == killer_m.sourceRow &&
+                    moves[k_idx].sourceCol == killer_m.sourceCol &&
+                    moves[k_idx].targetRow == killer_m.targetRow &&
+                    moves[k_idx].targetCol == killer_m.targetCol &&
+                    moves[k_idx].player == killer_m.player) {
+                    
+                    // Swap killer_move to the front (moves[0])
+                    if (k_idx > 0) {
+                        Move temp_move_for_swap = moves[0];
+                        moves[0] = moves[k_idx];
+                        moves[k_idx] = temp_move_for_swap;
+                        printf("Killer move prioritized: (%d,%d) to (%d,%d)\n", killer_m.sourceRow, killer_m.sourceCol, killer_m.targetRow, killer_m.targetCol);
+                    }
+                    break; // Found and swapped (or already at front)
+                }
+            }
+        }
+        
         for (int i = 0; i < move_count; i++) {
             if (isTimeUp(engine)) break;
             
@@ -526,9 +699,9 @@ Move findBestMove(AIEngine *engine, const GameBoard *board, char player) {
             memcpy(&move_board, &temp_board, sizeof(GameBoard));
             applyMove(&move_board, &moves[i]);
             
-            char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
+            char opponent_player = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER; // Renamed to avoid conflict
             int value = minimax(engine, &move_board, depth - 1, NEG_INFINITY_VAL, INFINITY_VAL, 
-                              opponent, player);
+                              opponent_player, player, current_game_phase);
             
             if (value > current_best_value) {
                 current_best_value = value;
@@ -547,6 +720,14 @@ Move findBestMove(AIEngine *engine, const GameBoard *board, char player) {
 // 승리 보장 이동 생성 (메인 함수)
 Move generateWinningMove(const GameBoard *board, char player) {
     printf("=== 강력한 AI 엔진 시작 ===\n");
+
+    // 오프닝 북 확인
+    Move opening_move = checkOpeningBook(board, player);
+    if (isValidMove(board, &opening_move)) {
+        printf("오프닝 북 이동 사용!\n");
+        return opening_move;
+    }
+
     // 종반이면 완전 계산 사용
     if (isEndgamePhase(board)) {
         printf("종반 단계 - 완전 계산 시작...\n");

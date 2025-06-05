@@ -8,3 +8,6 @@ make -f Makeboard
 
 # board 단독 실행 시 
 ./board_alone
+
+# client 단독 실행 시 
+./client -ip {ip} -port {port} -username {username}

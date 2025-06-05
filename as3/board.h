@@ -9,6 +9,7 @@
 #define RED_PLAYER 'R'
 #define BLUE_PLAYER 'B'
 #define EMPTY_CELL '.'
+#define BLOCKED_CELL '#'
 
 // 8방향 이동 벡터 (상하좌우 및 대각선)
 extern int dRow[8];

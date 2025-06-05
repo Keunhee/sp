@@ -146,8 +146,10 @@ Move solveEndgame(const GameBoard *board, char player) {
         applyMove(&temp_board, &moves[i]);
         
         char opponent = (player == RED_PLAYER) ? BLUE_PLAYER : RED_PLAYER;
+        // Determine game phase for the current board state in endgame
+        int current_game_phase = get_game_phase(&temp_board); 
         int value = minimax(engine, &temp_board, board->emptyCount, 
-                          NEG_INFINITY_VAL, INFINITY_VAL, opponent, player);
+                          NEG_INFINITY_VAL, INFINITY_VAL, opponent, player, current_game_phase);
         
         if (value > best_value) {
             best_value = value;
